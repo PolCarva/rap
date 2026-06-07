@@ -1,0 +1,8 @@
+# Copiá este archivo a `.dev.vars` y completá los valores.
+NEXTJS_ENV=development
+
+# Transcripción cross-browser vía OpenRouter. Conseguí la key en:
+# https://openrouter.ai/keys
+OPENROUTER_API_KEY=sk-or-...
+# Opcional. Default: openai/gpt-4o-mini-transcribe
+OPENROUTER_STT_MODEL=openai/gpt-4o-mini-transcribe

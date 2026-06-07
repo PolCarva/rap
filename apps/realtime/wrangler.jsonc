@@ -1,0 +1,27 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "rap-realtime",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-06-06",
+	"observability": {
+		"enabled": true
+	},
+	"durable_objects": {
+		"bindings": [
+			{ "name": "MATCHMAKING", "class_name": "MatchmakingRoom" },
+			{ "name": "BATTLE_ROOM", "class_name": "BattleRoom" }
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["MatchmakingRoom", "BattleRoom"]
+		}
+	]
+	/**
+	 * Bindings que se sumarán en pasos siguientes:
+	 * - Cloudflare Realtime (SFU + TURN) para el video
+	 * - Secrets: DEEPGRAM_API_KEY, juez multimodal (Gemini/OpenAI)
+	 * - R2 (grabaciones), Queues (post-procesado), D1 (persistencia compartida)
+	 */
+}

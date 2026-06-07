@@ -1,0 +1,3 @@
+# Copiá a `.dev.vars` y completá.
+# Deepgram para transcripción en vivo. Key en https://console.deepgram.com
+DEEPGRAM_API_KEY=
