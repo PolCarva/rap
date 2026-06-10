@@ -23,6 +23,7 @@ interface Props {
 	opponentCaption: string;
 	media: MediaController;
 	incomingSignal: { role: Role; signal: RtcSignal; seq: number } | null;
+	reconnecting?: boolean;
 	onReady: () => void;
 	onCaption: (text: string) => void;
 	onSignal: (signal: RtcSignal) => void;
@@ -47,6 +48,7 @@ export function BattleStage({
 	opponentCaption,
 	media,
 	incomingSignal,
+	reconnecting,
 	onReady,
 	onCaption,
 	onSignal,
@@ -106,7 +108,15 @@ export function BattleStage({
 	const interim = useDeepgram ? dgInterim : "";
 	const recStart = useDeepgram ? dgStart : chunkStart;
 	const recStop = useDeepgram ? dgStop : chunkStop;
-	const liveText = `${transcript} ${interim}`.trim();
+	// Mic inutilizable (sin permiso, sin soporte o contexto inseguro): el MC
+	// nunca queda mudo — se abre el modo texto como respaldo.
+	const micBlocked =
+		!recSupported ||
+		!recSecure ||
+		recError === "not-allowed" ||
+		recError === "insecure" ||
+		recError === "unsupported";
+	const liveText = `${transcript} ${interim}`.trim() || (micBlocked ? draft : "");
 	const turnKey = `${battle.battleId}:${battle.replicaCount}:${battle.round}:${battle.activeRole ?? "none"}`;
 
 	useEffect(() => {
@@ -131,7 +141,9 @@ export function BattleStage({
 	const submit = useCallback(() => {
 		if (submittedTurn.current === turnKey) return;
 		submittedTurn.current = turnKey;
-		const text = recSupported ? recStop() : draft;
+		// Combinar lo transcripto por voz con lo tipeado (modo respaldo).
+		const voice = recSupported ? recStop() : "";
+		const text = [voice, draft.trim()].filter(Boolean).join(" ").trim();
 		onSubmitVerse(text);
 		setDraft("");
 	}, [turnKey, recSupported, recStop, draft, onSubmitVerse]);
@@ -331,10 +343,18 @@ export function BattleStage({
 					</div>
 				)}
 
+				{/* Conexión: avisos no bloqueantes */}
+				{(reconnecting || !opp.connected) && (
+					<div className="conn-banner">
+						<span className="arena-live-dot" style={{ margin: 0 }} />
+						{reconnecting ? "RECONECTANDO CON LA SALA…" : "EL RIVAL PERDIÓ CONEXIÓN — ESPERANDO…"}
+					</div>
+				)}
+
 				{/* Controls for my turn */}
 				{battle.phase === "turn" && isMyTurn && (
 					<div className="fighter-controls" style={{ left: "0%", right: "50%", bottom: 20 }}>
-						{recSupported && recSecure ? (
+						{!micBlocked ? (
 							<>
 								{(!listening || recError) && (
 									<button
@@ -357,6 +377,15 @@ export function BattleStage({
 							</>
 						) : (
 							<>
+								{recSupported && recSecure && (
+									<button
+										onClick={activateMic}
+										className="btn-ghost"
+										style={{ fontSize: 11, padding: "10px 18px" }}
+									>
+										⚠ REINTENTAR MIC
+									</button>
+								)}
 								<button onClick={submit} className="btn-arena" style={{ fontSize: 14, padding: "10px 24px" }}>
 									<span>ENVIAR VERSO</span>
 								</button>
@@ -365,9 +394,12 @@ export function BattleStage({
 					</div>
 				)}
 
-				{/* Text input fallback on my turn */}
-				{battle.phase === "turn" && isMyTurn && (!recSupported || !recSecure) && (
+				{/* Text input fallback on my turn (mic bloqueado o sin soporte) */}
+				{battle.phase === "turn" && isMyTurn && micBlocked && (
 					<div style={{ position: "absolute", bottom: 70, left: 0, right: "50%", zIndex: 15, padding: "0 18px" }}>
+						<div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--red)", marginBottom: 6 }}>
+							{recError === "not-allowed" ? "MIC SIN PERMISO — MODO TEXTO" : "MODO TEXTO"}
+						</div>
 						<textarea
 							autoFocus
 							value={draft}
@@ -426,7 +458,12 @@ function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole
 
 			<div className={`judge-row stage-${stage}`}>
 				{v.judges.map((judge, index) => (
-					<JudgeCard key={judge.judge} vote={judge.vote} delay={index * 220} />
+					<JudgeCard
+						key={judge.judge}
+						vote={judge.vote}
+						names={{ p1: battle.players.p1.name, p2: battle.players.p2.name }}
+						delay={index * 220}
+					/>
 				))}
 			</div>
 
@@ -488,8 +525,16 @@ function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole
 	);
 }
 
-function JudgeCard({ vote, delay }: { vote: Role | "replica"; delay: number }) {
-	const label = vote === "replica" ? "RÉPLICA" : vote === "p1" ? "MC IZQ" : "MC DER";
+function JudgeCard({
+	vote,
+	names,
+	delay,
+}: {
+	vote: Role | "replica";
+	names: { p1: string; p2: string };
+	delay: number;
+}) {
+	const label = vote === "replica" ? "RÉPLICA" : (names[vote] || vote).toUpperCase();
 	return (
 		<div className={`judge-card vote-${vote}`} style={{ animationDelay: `${delay}ms` }}>
 			<div className="judge-body">
