@@ -3,7 +3,11 @@ import { pickBeat } from "@rap/db";
 import {
 	drawWords,
 	getModality,
+	getSynthBeat,
+	isSynthBeatId,
 	mmClientMessageSchema,
+	randomSynthBeat,
+	type Beat,
 	type PlayerIdentity,
 	type MmServerMessage,
 	type RoomInit,
@@ -49,6 +53,26 @@ function selectedBeatId(waiting: string | null, incoming: string | null): string
  * batalla, inicializa su Battle Room DO y avisa a ambos.
  */
 export class MatchmakingRoom extends DurableObject<Env> {
+	/**
+	 * Resuelve el beat de la batalla: synth explícito > beat de la DB >
+	 * synth aleatorio. Toda batalla sale con beat.
+	 */
+	private async resolveBeat(requestedId: string | null): Promise<Beat | null> {
+		if (isSynthBeatId(requestedId)) {
+			const found = getSynthBeat(requestedId!);
+			if (found) return found;
+		}
+		if (this.env.DB && requestedId && !isSynthBeatId(requestedId)) {
+			const fromDb = await pickBeat(this.env.DB, requestedId).catch(() => null);
+			if (fromDb) return fromDb;
+		}
+		if (this.env.DB && !requestedId) {
+			const fromDb = await pickBeat(this.env.DB, null).catch(() => null);
+			if (fromDb) return fromDb;
+		}
+		return randomSynthBeat();
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 
@@ -122,7 +146,7 @@ export class MatchmakingRoom extends DurableObject<Env> {
 		const words = mod.injectsWords
 			? drawWords(mod.wordCount, modality === "deconceptos" ? "concepts" : "words")
 			: [];
-		const beat = this.env.DB ? await pickBeat(this.env.DB, selectedBeatId(peerAtt.beatId, beatId)) : null;
+		const beat = await this.resolveBeat(selectedBeatId(peerAtt.beatId, beatId));
 		const battleId = crypto.randomUUID();
 
 		const init: RoomInit = {

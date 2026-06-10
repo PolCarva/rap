@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CrowdReactions } from "@/components/CrowdReactions";
 import { PlayerPanel } from "./PlayerPanel";
+import { useBeatPlayer } from "./useBeatPlayer";
 import { useChunkedTranscription } from "./useChunkedTranscription";
 import { useDeepgramTranscription } from "./useDeepgramTranscription";
 import type { MediaController } from "./useMediaStream";
@@ -84,10 +85,8 @@ export function BattleStage({
 	const { ensureActive, stream } = media;
 	const [draft, setDraft] = useState("");
 	const [useChunkFallback, setUseChunkFallback] = useState(false);
-	const [beatBlocked, setBeatBlocked] = useState(false);
 	const handledTurn = useRef<string | null>(null);
 	const submittedTurn = useRef<string | null>(null);
-	const beatAudioRef = useRef<HTMLAudioElement | null>(null);
 	const localStream = stream.current;
 	const mediaEnabled =
 		!!localStream && battle.phase !== "lobby" && battle.phase !== "aborted" && battle.phase !== "result";
@@ -167,28 +166,16 @@ export function BattleStage({
 
 	const mod = MODALITIES[battle.modality];
 	const beatIsActive = Boolean(battle.beat?.audioUrl && (battle.phase === "countdown" || battle.phase === "turn"));
-
-	const playBeat = useCallback(() => {
-		const audio = beatAudioRef.current;
-		if (!audio) return;
-		audio.volume = 0.38;
-		audio.loop = true;
-		audio.play().then(
-			() => setBeatBlocked(false),
-			() => setBeatBlocked(true),
-		);
-	}, []);
+	const beatPlayer = useBeatPlayer();
+	const { play: playBeatTrack, stop: stopBeatTrack } = beatPlayer;
 
 	useEffect(() => {
-		const audio = beatAudioRef.current;
-		if (!audio) return;
-		if (beatIsActive) {
-			playBeat();
+		if (beatIsActive && battle.beat) {
+			void playBeatTrack(battle.beat, 0.35);
 		} else {
-			audio.pause();
-			setBeatBlocked(false);
+			stopBeatTrack();
 		}
-	}, [beatIsActive, battle.beat?.audioUrl, playBeat]);
+	}, [beatIsActive, battle.beat, playBeatTrack, stopBeatTrack]);
 
 	// Result phase
 	if (battle.phase === "result" && battle.verdict) {
@@ -259,7 +246,6 @@ export function BattleStage({
 		<>
 			{/* ===== BATTLE ARENA ===== */}
 			<div className="battle-arena">
-				{battle.beat?.audioUrl && <audio ref={beatAudioRef} src={battle.beat.audioUrl} preload="auto" loop />}
 				{/* Me */}
 				<PlayerPanel
 					player={me}
@@ -317,8 +303,8 @@ export function BattleStage({
 						<div className="turn-beat">
 							BEAT: {battle.beat.name.toUpperCase()}
 							{battle.beat.bpm ? ` · ${battle.beat.bpm} BPM` : ""}
-							{beatBlocked && (
-								<button onClick={playBeat} type="button">
+							{beatPlayer.blocked && (
+								<button onClick={beatPlayer.unlock} type="button">
 									ACTIVAR
 								</button>
 							)}

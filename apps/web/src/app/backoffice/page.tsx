@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Beat } from "@rap/shared";
 import { AppNav } from "@/components/AppNav";
+import { detectBpmFromUrl } from "@/lib/bpm";
 
 const KEY = "rap-arena-backoffice-key";
 
@@ -28,6 +29,30 @@ export default function BackofficePage() {
 	const [beats, setBeats] = useState<Beat[]>([]);
 	const [form, setForm] = useState<BeatForm>(EMPTY);
 	const [status, setStatus] = useState("");
+	const [detecting, setDetecting] = useState(false);
+
+	const detectBpm = async () => {
+		const url = form.audioUrl.trim();
+		if (!url) {
+			setStatus("Pegá primero la URL del audio");
+			return;
+		}
+		setDetecting(true);
+		setStatus("Analizando BPM…");
+		try {
+			const bpm = await detectBpmFromUrl(url);
+			if (bpm) {
+				setForm((f) => ({ ...f, bpm: String(bpm) }));
+				setStatus(`BPM detectado: ${bpm}`);
+			} else {
+				setStatus("No se pudo detectar un pulso claro; cargalo a mano");
+			}
+		} catch {
+			setStatus("No se pudo analizar el audio (¿CORS o URL inválida?)");
+		} finally {
+			setDetecting(false);
+		}
+	};
 	const activeCount = useMemo(() => beats.filter((beat) => beat.isActive).length, [beats]);
 
 	const headers = useCallback((nextKey = key) => ({
@@ -127,6 +152,9 @@ export default function BackofficePage() {
 					<input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Nombre del beat" />
 					<input value={form.producer} onChange={(e) => setForm((f) => ({ ...f, producer: e.target.value }))} placeholder="Producer" />
 					<input value={form.bpm} onChange={(e) => setForm((f) => ({ ...f, bpm: e.target.value.replace(/\D/g, "") }))} placeholder="BPM" inputMode="numeric" />
+					<button className="btn-ghost" onClick={detectBpm} disabled={detecting || !form.audioUrl.trim()}>
+						{detecting ? "Analizando…" : "Detectar BPM"}
+					</button>
 				</div>
 				<input value={form.audioUrl} onChange={(e) => setForm((f) => ({ ...f, audioUrl: e.target.value }))} placeholder="https://..." />
 				<label className="backoffice-check">

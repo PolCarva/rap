@@ -1794,6 +1794,9 @@ body {
 }
 
 .beat-card {
+	position: relative;
+	cursor: pointer;
+	user-select: none;
 	text-align: left;
 	min-height: 96px;
 	background: rgba(255, 255, 255, 0.025);
@@ -1816,6 +1819,35 @@ body {
 	font-size: 22px;
 	text-transform: uppercase;
 	line-height: 1;
+}
+
+.beat-preview-btn {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	width: 30px;
+	height: 30px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(5, 5, 7, 0.7);
+	border: 1px solid var(--line);
+	color: var(--bone);
+	font-size: 11px;
+	cursor: pointer;
+	transition: border-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.beat-preview-btn:hover {
+	border-color: var(--red);
+	color: var(--red);
+}
+
+.beat-preview-btn.on {
+	border-color: var(--red);
+	color: var(--red);
+	box-shadow: 0 0 10px rgba(232, 25, 44, 0.45);
+	animation: connPulse 1.2s ease-in-out infinite;
 }
 
 .beat-card-meta {
