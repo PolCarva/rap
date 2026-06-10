@@ -8,10 +8,11 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@rap/shared": "*",
-    "zod": "^3.24.1"
-  },
+	"dependencies": {
+		"@rap/db": "*",
+		"@rap/shared": "*",
+		"zod": "^3.24.1"
+	},
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
     "typescript": "^5.7.4",

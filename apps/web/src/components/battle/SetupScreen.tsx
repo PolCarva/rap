@@ -1,19 +1,64 @@
 "use client";
 
-import { MODALITIES, MODALITY_IDS, type ModalityId } from "@rap/shared";
-import { useEffect, useRef, useState } from "react";
+import { MODALITIES, MODALITY_IDS, type Beat, type ModalityId } from "@rap/shared";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePlayerCounts } from "@/components/usePlayerCounts";
 import type { MediaController } from "./useMediaStream";
+import type { RapSession } from "./useRapSession";
 
 interface Props {
 	error: string | null;
 	media: MediaController;
-	onSearch: (name: string, modality: ModalityId) => void;
+	session: RapSession;
+	onSearch: (
+		identity: { isGuest: true; name: string } | { isGuest: false; name: string; email: string | null },
+		modality: ModalityId,
+		beatId: string | null,
+	) => void;
 }
 
-export function SetupScreen({ error, media, onSearch }: Props) {
-	const [name, setName] = useState("");
+const DIFF_LABELS: Record<string, string> = {
+	"4x4": "NIVEL: MEDIO",
+	"minuto-libre": "NIVEL: ABIERTO",
+	palabras: "NIVEL: DIFÍCIL",
+	deconceptos: "NIVEL: CONCEPTUAL",
+};
+
+export function SetupScreen({ error, media, session, onSearch }: Props) {
+	const counts = usePlayerCounts();
 	const [modality, setModality] = useState<ModalityId>("minuto-libre");
+	const [beats, setBeats] = useState<Beat[]>([]);
+	const [beatId, setBeatId] = useState<string>("random");
+	const [beatState, setBeatState] = useState<"loading" | "ready" | "empty">("loading");
+	const [asGuest, setAsGuest] = useState(session.isGuest);
+	const [accountAka, setAccountAka] = useState(session.isGuest ? "" : session.name);
+	const [guestAka, setGuestAka] = useState(session.isGuest ? session.name : "");
 	const videoRef = useRef<HTMLVideoElement>(null);
+
+	const isLoggedIn = !session.isGuest && !!session.userId;
+
+	useEffect(() => {
+		setAsGuest(!isLoggedIn);
+		if (isLoggedIn) setAccountAka(session.name);
+		if (session.isGuest) setGuestAka(session.name);
+	}, [isLoggedIn, session.isGuest, session.name]);
+
+	useEffect(() => {
+		let active = true;
+		fetch("/api/beats")
+			.then((r) => r.json() as Promise<{ beats: Beat[] }>)
+			.then(({ beats }) => {
+				if (!active) return;
+				setBeats(beats);
+				setBeatState(beats.length > 0 ? "ready" : "empty");
+			})
+			.catch(() => {
+				if (active) setBeatState("empty");
+			});
+		return () => {
+			active = false;
+		};
+	}, []);
 
 	useEffect(() => {
 		if (media.status === "ready" && videoRef.current && media.stream.current) {
@@ -21,120 +66,204 @@ export function SetupScreen({ error, media, onSearch }: Props) {
 		}
 	}, [media.status, media.stream]);
 
-	const canSearch = name.trim().length > 0;
+	const currentAka = asGuest ? guestAka : accountAka;
+	const canUseAccount = isLoggedIn && !asGuest;
+	const canEnter = currentAka.trim().length > 0;
+	const selectedBeat = useMemo(() => beats.find((beat) => beat.id === beatId) ?? null, [beats, beatId]);
+
+	const handleSearch = () => {
+		const name = currentAka.trim();
+		const selectedBeatId = beatId === "random" ? null : beatId;
+		if (!canEnter) return;
+		if (canUseAccount) {
+			onSearch({ isGuest: false, name, email: session.email }, modality, selectedBeatId);
+		} else {
+			onSearch({ isGuest: true, name }, modality, selectedBeatId);
+		}
+	};
+
+	const launchSummary = () => {
+		if (!canEnter) return "FALTA TU AKA DE GUERRA";
+		const m = MODALITIES[modality];
+		const beat = selectedBeat ? selectedBeat.name : beatId === "random" ? "BEAT RANDOM" : "SIN BEAT";
+		const rank = canUseAccount ? "RANKEADA" : "INVITADO";
+		return `${currentAka.toUpperCase()} · ${m.name.toUpperCase()} · ${beat.toUpperCase()} · ${rank}`;
+	};
 
 	return (
-		<div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-12">
-			<header className="text-center">
-				<h1 className="bg-gradient-to-r from-fuchsia-400 to-cyan-400 bg-clip-text text-5xl font-black tracking-tight text-transparent">
-					RAP ARENA
+		<div
+			style={{
+				position: "relative",
+				zIndex: 10,
+				minHeight: "100vh",
+				maxWidth: 1180,
+				margin: "0 auto",
+				padding: "110px 32px 80px",
+				display: "flex",
+				flexDirection: "column",
+				gap: 46,
+				overflowY: "auto",
+			}}
+		>
+			<div className="config-page-head">
+				<div className="config-kicker">PASO PREVIO AL COMBATE</div>
+				<h1 className="config-h1">
+					ARMA TU <em>BATALLA</em>
 				</h1>
-				<p className="mt-2 text-sm text-white/50">Buscá batalla. Rapeá. Que decida el juez.</p>
-			</header>
+			</div>
 
-			{/* Prueba de cámara y micrófono */}
-			<section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-				<h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/60">
-					1 · Probá cámara y micrófono
-				</h2>
-				<div className="flex flex-col items-center gap-4 sm:flex-row">
-					<div className="relative aspect-video w-full max-w-xs overflow-hidden rounded-xl bg-black/60 ring-1 ring-white/10">
-						{media.status === "ready" ? (
-							<video ref={videoRef} autoPlay muted playsInline className="h-full w-full -scale-x-100 object-cover" />
-						) : (
-							<div className="flex h-full items-center justify-center text-xs text-white/40">
-								{media.status === "denied" ? "Permiso denegado" : "Cámara apagada"}
-							</div>
-						)}
-					</div>
-					<div className="flex w-full flex-col gap-3">
-						{media.status === "ready" ? (
-							<button
-								onClick={media.stop}
-								className="rounded-lg border border-white/15 px-4 py-2 text-sm font-medium text-white/80 hover:bg-white/5"
-							>
-								Apagar cámara
+			<section className={`config-step${canEnter ? " done" : ""}`}>
+				<div className="config-step-num">01</div>
+				<div style={{ width: "100%" }}>
+					<h2 className="config-step-title">Identidad</h2>
+					<div className="config-step-hint">Tu AKA de perfil aparece listo; invitado no mueve stats ni ELO</div>
+
+					{isLoggedIn && (
+						<div className="identity-switch" role="tablist" aria-label="Tipo de entrada">
+							<button className={!asGuest ? "active" : ""} onClick={() => setAsGuest(false)}>
+								Cuenta
 							</button>
-						) : (
-							<button
-								onClick={media.start}
-								className="rounded-lg bg-white/10 px-4 py-2 text-sm font-medium hover:bg-white/15"
-							>
-								{media.status === "requesting" ? "Pidiendo permiso…" : "Encender cámara y mic"}
+							<button className={asGuest ? "active" : ""} onClick={() => setAsGuest(true)}>
+								Invitado
 							</button>
-						)}
-						<div>
-							<div className="mb-1 text-xs text-white/40">Nivel de micrófono</div>
-							<div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-								<div
-									className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-500 transition-[width] duration-75"
-									style={{ width: `${Math.round(media.audioLevel * 100)}%` }}
-								/>
-							</div>
+						</div>
+					)}
+
+					<div style={{ maxWidth: 460 }}>
+						<input
+							className="aka-input"
+							value={currentAka}
+							onChange={(e) => (asGuest ? setGuestAka(e.target.value.toUpperCase()) : setAccountAka(e.target.value.toUpperCase()))}
+							maxLength={30}
+							placeholder={isLoggedIn && !asGuest ? "AKA PARA ESTA BATALLA" : "ESCRIBE TU AKA"}
+							autoComplete="off"
+							spellCheck={false}
+						/>
+						<div className={`rank-note${canUseAccount ? " ranked" : ""}`}>
+							{canUseAccount ? "CUENTA ACTIVA · ESTA BATALLA CUENTA PARA TU ELO" : "MODO INVITADO · NO CUENTA PARA STATS"}
 						</div>
 					</div>
 				</div>
 			</section>
 
-			{/* Nombre */}
-			<section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-				<h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/60">
-					2 · Tu nombre de MC
-				</h2>
-				<input
-					value={name}
-					onChange={(e) => setName(e.target.value)}
-					maxLength={40}
-					placeholder="MC..."
-					className="w-full rounded-lg border border-white/15 bg-black/40 px-4 py-3 text-lg outline-none focus:border-fuchsia-400/60"
-				/>
-			</section>
-
-			{/* Modalidad */}
-			<section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-				<h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/60">
-					3 · Elegí modalidad
-				</h2>
-				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-					{MODALITY_IDS.map((id) => {
-						const m = MODALITIES[id];
-						const active = id === modality;
-						return (
-							<button
-								key={id}
-								onClick={() => setModality(id)}
-								className={`rounded-xl border p-4 text-left transition ${
-									active
-										? "border-fuchsia-400/70 bg-fuchsia-500/10"
-										: "border-white/10 bg-black/20 hover:border-white/25"
-								}`}
-							>
-								<div className="flex items-center justify-between">
-									<span className="font-bold">{m.name}</span>
-									<span className="text-xs text-white/40">
-										{m.rounds} ×{m.turnDurationSec}s
-									</span>
-								</div>
-								<p className="mt-1 text-xs text-white/50">{m.description}</p>
-							</button>
-						);
-					})}
+			<section className="config-step done">
+				<div className="config-step-num">02</div>
+				<div>
+					<h2 className="config-step-title">Modo de batalla</h2>
+					<div className="config-step-hint">Cada modo cambia las palabras, el tempo y la presión</div>
+					<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14 }}>
+						{MODALITY_IDS.map((id) => {
+							const m = MODALITIES[id];
+							return (
+								<button key={id} onClick={() => setModality(id)} className={`mode-card${modality === id ? " sel" : ""}`}>
+									<div className="mode-card-name">{m.name}</div>
+									<div className="mode-card-desc">{m.description}</div>
+									<div className="mode-card-meta">
+										<span>
+											{m.rounds} x {m.turnDurationSec}s
+										</span>
+										<span className="mode-card-diff">{DIFF_LABELS[id] ?? "MODO"}</span>
+									</div>
+									{(counts.byModality[id] ?? 0) > 0 && (
+										<div className="mode-live">
+											<span />
+											{counts.byModality[id]} BUSCANDO
+										</div>
+									)}
+								</button>
+							);
+						})}
+					</div>
 				</div>
 			</section>
 
-			{error && (
-				<p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">
-					{error}
-				</p>
-			)}
+			<section className="config-step done">
+				<div className="config-step-num">03</div>
+				<div style={{ width: "100%" }}>
+					<h2 className="config-step-title">Beat</h2>
+					<div className="config-step-hint">La pista elegida suena en los turnos de ambos MCs</div>
+					<div className="beat-grid">
+						<button className={`beat-card${beatId === "random" ? " sel" : ""}`} onClick={() => setBeatId("random")}>
+							<div className="beat-card-name">Random</div>
+							<div className="beat-card-meta">{beatState === "loading" ? "CARGANDO LISTA" : beats.length ? `${beats.length} ACTIVOS` : "SIN BEATS ACTIVOS"}</div>
+						</button>
+						{beats.map((beat) => (
+							<button key={beat.id} className={`beat-card${beatId === beat.id ? " sel" : ""}`} onClick={() => setBeatId(beat.id)}>
+								<div className="beat-card-name">{beat.name}</div>
+								<div className="beat-card-meta">
+									{beat.producer ?? "BACKOFFICE"} {beat.bpm ? `· ${beat.bpm} BPM` : ""}
+								</div>
+							</button>
+						))}
+					</div>
+				</div>
+			</section>
 
-			<button
-				disabled={!canSearch}
-				onClick={() => onSearch(name.trim(), modality)}
-				className="rounded-xl bg-gradient-to-r from-fuchsia-500 to-cyan-500 px-6 py-4 text-lg font-bold text-black transition disabled:cursor-not-allowed disabled:opacity-40 hover:brightness-110"
-			>
-				Buscar batalla
-			</button>
+			<section className={`config-step${media.status === "ready" ? " done" : ""}`}>
+				<div className="config-step-num">04</div>
+				<div>
+					<h2 className="config-step-title">Mic + Cámara</h2>
+					<div className="config-step-hint">Sin señal no hay batalla</div>
+					<div className="media-setup-grid">
+						<div className="cam-box">
+							{media.status === "ready" ? (
+								<video ref={videoRef} autoPlay muted playsInline />
+							) : (
+								<div className="cam-no-signal">
+									<div className="big">SIN SEÑAL</div>
+									<div>ESPERANDO PERMISOS DE CÁMARA</div>
+								</div>
+							)}
+							{media.status === "ready" && (
+								<div className="cam-preview-label">
+									<span className="arena-live-dot" style={{ margin: 0 }} />
+									PREVIEW
+								</div>
+							)}
+						</div>
+						<div style={{ display: "flex", flexDirection: "column", gap: 16, justifyContent: "center" }}>
+							<div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+								<div className={`perm-pill${media.status === "ready" ? " ok" : ""}`}>
+									CÁMARA <span className="perm-state">{media.status === "ready" ? "LIVE" : "PENDIENTE"}</span>
+								</div>
+								<div className={`perm-pill${media.status === "ready" ? " ok" : ""}`}>
+									MICRÓFONO <span className="perm-state">{media.status === "ready" ? "LIVE" : "PENDIENTE"}</span>
+								</div>
+							</div>
+							{media.status === "ready" ? (
+								<button onClick={media.stop} className="btn-ghost" style={{ alignSelf: "flex-start" }}>
+									APAGAR SEÑAL
+								</button>
+							) : (
+								<button
+									onClick={media.start}
+									disabled={media.status === "requesting"}
+									className="btn-arena"
+									style={{ alignSelf: "flex-start", padding: "16px 34px", fontSize: 17 }}
+								>
+									<span>{media.status === "requesting" ? "PIDIENDO PERMISOS" : "ACTIVAR MIC + CÁMARA"}</span>
+								</button>
+							)}
+							{media.status === "ready" && (
+								<div>
+									<div className="mic-label">NIVEL MIC</div>
+									<div className="mic-meter">
+										<div style={{ width: `${Math.round(media.audioLevel * 100)}%` }} />
+									</div>
+								</div>
+							)}
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<section className="launch-panel">
+				{error && <p className="launch-error">{error}</p>}
+				<button disabled={!canEnter} onClick={handleSearch} className="btn-arena" style={{ fontSize: "clamp(22px, 2.4vw, 32px)", padding: "22px 64px" }}>
+					<span>BUSCAR RIVAL</span>
+				</button>
+				<div className="launch-summary">{launchSummary()}</div>
+			</section>
 		</div>
 	);
 }

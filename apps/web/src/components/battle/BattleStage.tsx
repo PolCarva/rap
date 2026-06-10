@@ -1,23 +1,35 @@
 "use client";
 
-import { MODALITIES, type BattleState, type Role } from "@rap/shared";
+import {
+	CRITERIA,
+	CRITERIA_LABELS,
+	MODALITIES,
+	type BattleState,
+	type PlayerVerdict,
+	type RtcSignal,
+	type Role,
+} from "@rap/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CrowdReactions } from "@/components/CrowdReactions";
 import { PlayerPanel } from "./PlayerPanel";
+import { useChunkedTranscription } from "./useChunkedTranscription";
 import { useDeepgramTranscription } from "./useDeepgramTranscription";
 import type { MediaController } from "./useMediaStream";
+import { useWebRtcPeer } from "./useWebRtcPeer";
 
 interface Props {
 	battle: BattleState;
 	myRole: Role;
 	opponentCaption: string;
 	media: MediaController;
+	incomingSignal: { role: Role; signal: RtcSignal; seq: number } | null;
 	onReady: () => void;
 	onCaption: (text: string) => void;
+	onSignal: (signal: RtcSignal) => void;
 	onSubmitVerse: (text: string) => void;
 	onLeave: () => void;
 }
 
-/** Segundos restantes hasta un deadline epoch-ms (cronómetro autoritativo del DO). */
 function useRemaining(deadline: number | null): number | null {
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
@@ -34,8 +46,10 @@ export function BattleStage({
 	myRole,
 	opponentCaption,
 	media,
+	incomingSignal,
 	onReady,
 	onCaption,
+	onSignal,
 	onSubmitVerse,
 	onLeave,
 }: Props) {
@@ -46,53 +60,93 @@ export function BattleStage({
 	const remaining = useRemaining(battle.deadline);
 
 	const {
-		supported: recSupported,
-		secure: recSecure,
-		listening,
-		error: recError,
-		transcript,
-		interim,
-		start: recStart,
-		stop: recStop,
+		supported: dgSupported,
+		secure: dgSecure,
+		listening: dgListening,
+		error: dgError,
+		transcript: dgTranscript,
+		interim: dgInterim,
+		start: dgStart,
+		stop: dgStop,
 	} = useDeepgramTranscription();
+	const {
+		supported: chunkSupported,
+		secure: chunkSecure,
+		listening: chunkListening,
+		error: chunkError,
+		transcript: chunkTranscript,
+		start: chunkStart,
+		stop: chunkStop,
+	} = useChunkedTranscription();
 
-	const { stream, releaseAudio } = media;
-	const [draft, setDraft] = useState(""); // fallback de tipeo si no hay voz
-	const handledRound = useRef<number | null>(null);
-	const submittedRound = useRef<number | null>(null);
+	const { ensureActive, stream } = media;
+	const [draft, setDraft] = useState("");
+	const [useChunkFallback, setUseChunkFallback] = useState(false);
+	const [beatBlocked, setBeatBlocked] = useState(false);
+	const handledTurn = useRef<string | null>(null);
+	const submittedTurn = useRef<string | null>(null);
+	const beatAudioRef = useRef<HTMLAudioElement | null>(null);
+	const localStream = stream.current;
+	const mediaEnabled =
+		!!localStream && battle.phase !== "lobby" && battle.phase !== "aborted" && battle.phase !== "result";
+	const { remoteStream, status: peerStatus } = useWebRtcPeer({
+		enabled: mediaEnabled,
+		initiator: myRole === "p1",
+		localStream,
+		incomingSignal,
+		onSignal,
+	});
 
+	const useDeepgram = dgSupported && dgSecure && !useChunkFallback;
+	const recSupported = useDeepgram ? dgSupported : chunkSupported;
+	const recSecure = useDeepgram ? dgSecure : chunkSecure;
+	const listening = useDeepgram ? dgListening : chunkListening;
+	const recError = useDeepgram ? dgError : chunkError;
+	const transcript = useDeepgram ? dgTranscript : chunkTranscript;
+	const interim = useDeepgram ? dgInterim : "";
+	const recStart = useDeepgram ? dgStart : chunkStart;
+	const recStop = useDeepgram ? dgStop : chunkStop;
 	const liveText = `${transcript} ${interim}`.trim();
+	const turnKey = `${battle.battleId}:${battle.replicaCount}:${battle.round}:${battle.activeRole ?? "none"}`;
 
-	// Arranca (o reintenta) el reconocimiento de voz. Libera primero el mic que
-	// pueda estar reteniendo la cámara, para que Web Speech lo pueda usar.
+	useEffect(() => {
+		if (dgError === "connection" || dgError === "No se pudo conectar a Deepgram") {
+			setUseChunkFallback(true);
+		}
+	}, [dgError]);
+
 	const activateMic = useCallback(() => {
-		releaseAudio();
 		recStart((full) => onCaption(full));
-	}, [releaseAudio, recStart, onCaption]);
+	}, [recStart, onCaption]);
 
-	// Al empezar mi turno: arrancar reconocimiento de voz (o limpiar el textarea).
 	useEffect(() => {
 		if (!isMyTurn) return;
-		if (handledRound.current === battle.round) return;
-		handledRound.current = battle.round;
+		if (handledTurn.current === turnKey) return;
+		handledTurn.current = turnKey;
+		submittedTurn.current = null;
 		setDraft("");
 		if (recSupported && recSecure) activateMic();
-	}, [isMyTurn, battle.round, recSupported, recSecure, activateMic]);
+	}, [isMyTurn, turnKey, recSupported, recSecure, activateMic]);
 
 	const submit = useCallback(() => {
-		if (submittedRound.current === battle.round) return;
-		submittedRound.current = battle.round;
+		if (submittedTurn.current === turnKey) return;
+		submittedTurn.current = turnKey;
 		const text = recSupported ? recStop() : draft;
 		onSubmitVerse(text);
 		setDraft("");
-	}, [battle.round, recSupported, recStop, draft, onSubmitVerse]);
+	}, [turnKey, recSupported, recStop, draft, onSubmitVerse]);
 
-	// Seguro: si se acaba el tiempo y no envié, mando lo transcripto hasta ahora.
 	useEffect(() => {
-		if (isMyTurn && remaining !== null && remaining <= 1 && submittedRound.current !== battle.round) {
+		if (isMyTurn && remaining !== null && remaining <= 1 && submittedTurn.current !== turnKey) {
 			submit();
 		}
-	}, [isMyTurn, remaining, battle.round, submit]);
+	}, [isMyTurn, remaining, turnKey, submit]);
+
+	useEffect(() => {
+		if (battle.phase === "countdown" || battle.phase === "turn") {
+			void ensureActive();
+		}
+	}, [battle.phase, battle.replicaCount, ensureActive]);
 
 	const handleDraft = (text: string) => {
 		setDraft(text);
@@ -100,220 +154,423 @@ export function BattleStage({
 	};
 
 	const mod = MODALITIES[battle.modality];
+	const beatIsActive = Boolean(battle.beat?.audioUrl && (battle.phase === "countdown" || battle.phase === "turn"));
+
+	const playBeat = useCallback(() => {
+		const audio = beatAudioRef.current;
+		if (!audio) return;
+		audio.volume = 0.38;
+		audio.loop = true;
+		audio.play().then(
+			() => setBeatBlocked(false),
+			() => setBeatBlocked(true),
+		);
+	}, []);
+
+	useEffect(() => {
+		const audio = beatAudioRef.current;
+		if (!audio) return;
+		if (beatIsActive) {
+			playBeat();
+		} else {
+			audio.pause();
+			setBeatBlocked(false);
+		}
+	}, [beatIsActive, battle.beat?.audioUrl, playBeat]);
+
+	// Result phase
+	if (battle.phase === "result" && battle.verdict) {
+		return <ResultScreen battle={battle} myRole={myRole} onLeave={onLeave} />;
+	}
+
+	// Aborted
+	if (battle.phase === "aborted") {
+		return (
+			<div className="battle-phase">
+				<div className="arena-grain" />
+				<div className="arena-vignette" />
+				<div className="battle-searching-title" style={{ color: "var(--bone)" }}>BATALLA TERMINADA</div>
+				<p style={{ fontFamily: "var(--font-mono)", fontSize: 12, letterSpacing: "0.3em", color: "var(--bone-dim)", textTransform: "uppercase" }}>
+					EL RIVAL ABANDONÓ LA BATALLA
+				</p>
+				<button onClick={onLeave} className="btn-ghost">VOLVER AL INICIO</button>
+			</div>
+		);
+	}
+
+	// Lobby / ready check phases (full-screen overlay)
+	if (battle.phase === "lobby" || battle.phase === "ready_check") {
+		return (
+			<div className="battle-phase">
+				<div className="arena-grain" />
+				<div className="arena-vignette" />
+				{battle.phase === "lobby" ? (
+					<>
+						<div className="battle-radar"><div className="core" /></div>
+						<div className="battle-searching-title">CONECTANDO<span className="red">…</span></div>
+						<div className="battle-searching-sub">ESPERANDO AL RIVAL</div>
+					</>
+				) : (
+					<>
+						{/* VS splash */}
+						<div className="splash-names">
+							<div className="splash-name-left">{me.name || "TÚ"}</div>
+							<div className="splash-vs">VS</div>
+							<div className="splash-name-right">{opp.name || "???"}</div>
+						</div>
+						<div className="splash-mode">MODO — {mod.name.toUpperCase()}</div>
+						{battle.beat && <div className="splash-mode">BEAT — {battle.beat.name.toUpperCase()}</div>}
+
+						<div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginTop: 20 }}>
+							<button
+								onClick={onReady}
+								disabled={me.ready}
+								className="btn-arena"
+								style={{ fontSize: 22, padding: "18px 48px" }}
+							>
+								<span>{me.ready ? "ESPERANDO AL RIVAL…" : "ESTOY LISTO ⚔"}</span>
+							</button>
+							{!me.ready && (
+								<p style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--bone-dim)" }}>
+									PROBÁ TU CÁMARA Y MIC ANTES DE CONFIRMAR
+								</p>
+							)}
+						</div>
+					</>
+				)}
+				<button onClick={onLeave} className="btn-ghost">ABANDONAR</button>
+			</div>
+		);
+	}
 
 	return (
-		<div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-6">
-			{/* Encabezado */}
-			<div className="flex items-center justify-between">
-				<div>
-					<span className="text-sm font-bold text-fuchsia-300">{mod.name}</span>
-					<span className="ml-2 text-xs text-white/40">
-						Ronda {Math.max(1, battle.round)}/{battle.totalRounds}
-					</span>
-				</div>
-				<button onClick={onLeave} className="text-xs text-white/40 hover:text-red-300">
-					Abandonar
-				</button>
-			</div>
-
-			{battle.words.length > 0 && (
-				<div className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-4 py-2 text-sm">
-					<span className="text-amber-300/80">Palabras obligatorias: </span>
-					{battle.words.map((w) => (
-						<span key={w} className="mr-2 font-semibold text-amber-200">
-							{w}
-						</span>
-					))}
-				</div>
-			)}
-
-			{/* Paneles enfrentados */}
-			<div className="relative flex flex-col items-stretch gap-3 sm:flex-row">
+		<>
+			{/* ===== BATTLE ARENA ===== */}
+			<div className="battle-arena">
+				{battle.beat?.audioUrl && <audio ref={beatAudioRef} src={battle.beat.audioUrl} preload="auto" loop />}
+				{/* Me */}
 				<PlayerPanel
 					player={me}
 					isSelf
 					isActive={battle.phase === "turn" && battle.activeRole === myRole}
 					caption={isMyTurn ? liveText : ""}
 					verses={battle.verses[myRole]}
-					stream={stream.current}
+					stream={localStream}
+					videoMuted
+					remaining={battle.phase === "turn" && battle.activeRole === myRole ? remaining : null}
 				/>
-				<div className="flex items-center justify-center text-2xl font-black text-white/30 sm:flex-col">
-					VS
-				</div>
+
+				{/* Rival */}
 				<PlayerPanel
 					player={opp}
 					isSelf={false}
 					isActive={battle.phase === "turn" && battle.activeRole === oppRole}
 					caption={battle.phase === "turn" && battle.activeRole === oppRole ? opponentCaption : ""}
 					verses={battle.verses[oppRole]}
+					stream={remoteStream}
+					videoMuted={false}
 					mirror
+					mediaStatus={remoteStream ? undefined : peerStatus === "failed" ? "media desconectada" : "conectando"}
+					remaining={battle.phase === "turn" && battle.activeRole === oppRole ? remaining : null}
 				/>
 
-				{/* Overlay de cuenta atrás */}
+				{/* Crowd reactions */}
+				<CrowdReactions active={battle.phase === "turn"} />
+
+				{/* VS badge */}
+				<div className="vs-badge">VS</div>
+
+				{/* Turn banner */}
+				<div className="turn-banner">
+					<div className="turn-who">
+						{battle.phase === "turn" ? (
+							<>
+								TURNO:{" "}
+								<span className="red">
+									{battle.activeRole === myRole ? me.name || "TÚ" : opp.name || "RIVAL"}
+								</span>
+							</>
+						) : battle.phase === "countdown" ? (
+							"PREPARANDO…"
+						) : battle.phase === "judging" ? (
+							<>⚖️ JUEZ EVALUANDO…</>
+						) : (
+							"EN ARENA"
+						)}
+					</div>
+					<div className="turn-round">
+						{mod.name.toUpperCase()} · RONDA {Math.max(1, battle.round)}/{battle.totalRounds}
+					</div>
+					{battle.beat && (
+						<div className="turn-beat">
+							BEAT: {battle.beat.name.toUpperCase()}
+							{battle.beat.bpm ? ` · ${battle.beat.bpm} BPM` : ""}
+							{beatBlocked && (
+								<button onClick={playBeat} type="button">
+									ACTIVAR
+								</button>
+							)}
+						</div>
+					)}
+				</div>
+
+				{/* Prompt words */}
+				{battle.words.length > 0 && (
+					<div className="prompt-zone">
+						<div className="prompt-label">PALABRAS OBLIGATORIAS</div>
+						<div className="prompt-word">{battle.words.join(" · ")}</div>
+					</div>
+				)}
+
+				{/* Countdown overlay */}
 				{battle.phase === "countdown" && (
-					<div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/70 backdrop-blur-sm">
-						<div className="text-7xl font-black text-white animate-battle-pulse">
+					<div className="battle-countdown">
+						<div className="battle-countdown-num">
 							{remaining !== null && remaining > 0 ? remaining : "¡YA!"}
 						</div>
 					</div>
 				)}
-			</div>
 
-			{/* Controles según fase */}
-			<div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-				{battle.phase === "lobby" && (
-					<p className="text-center text-sm text-white/50">Esperando a que se conecte el rival…</p>
-				)}
-
-				{battle.phase === "ready_check" && (
-					<div className="flex flex-col items-center gap-3">
-						<p className="text-sm text-white/60">Probá tu cámara y micrófono. Cuando estés, dale listo.</p>
-						<button
-							onClick={onReady}
-							disabled={me.ready}
-							className="rounded-xl bg-gradient-to-r from-fuchsia-500 to-cyan-500 px-8 py-3 font-bold text-black disabled:opacity-40"
-						>
-							{me.ready ? "Esperando al rival…" : "Estoy listo"}
-						</button>
-					</div>
-				)}
-
+				{/* Controls for my turn */}
 				{battle.phase === "turn" && isMyTurn && (
-					<div className="flex flex-col gap-3">
-						<div className="flex items-center justify-between text-sm">
-							<span className="flex items-center gap-2 font-bold text-fuchsia-300">
-								¡Tu turno! Rapeá 🔥
-								{recSupported && listening && (
-									<span className="flex items-center gap-1 text-xs font-normal text-red-400">
-										<span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> escuchando
-									</span>
-								)}
-							</span>
-							{remaining !== null && (
-								<span className={`font-mono ${remaining <= 5 ? "text-red-400" : "text-white/60"}`}>{remaining}s</span>
-							)}
-						</div>
-
+					<div className="fighter-controls" style={{ left: "0%", right: "50%", bottom: 20 }}>
 						{recSupported && recSecure ? (
 							<>
-								<div className="min-h-24 rounded-lg border border-fuchsia-400/40 bg-black/40 px-3 py-2 text-lg leading-relaxed">
-									{liveText ? (
-										<>
-											{transcript && <span>{transcript} </span>}
-											<span className="text-white/50">{interim}</span>
-										</>
-									) : recError ? (
-										<span className="text-red-300">
-											No se pudo transcribir ({recError}). Revisá el micrófono / la API key de Deepgram y tocá
-											“Activar micrófono”.
-										</span>
-									) : listening ? (
-										<span className="text-white/40">🎙️ Escuchando… empezá a rapear</span>
-									) : (
-										<span className="text-white/30">Tocá “Activar micrófono” para empezar 🎤</span>
-									)}
-								</div>
-								<div className="flex items-center justify-end gap-2">
-									{(!listening || recError) && (
-										<button
-											onClick={activateMic}
-											className="rounded-lg border border-fuchsia-400/50 px-4 py-2 text-sm font-medium text-fuchsia-200 hover:bg-fuchsia-500/10"
-										>
-											🎤 Activar micrófono
-										</button>
-									)}
+								{(!listening || recError) && (
 									<button
-										onClick={submit}
-										className="rounded-lg bg-fuchsia-500 px-5 py-2 text-sm font-bold text-black hover:brightness-110"
+										onClick={activateMic}
+										className="btn-ghost"
+										style={{ fontSize: 11, padding: "10px 18px" }}
 									>
-										Terminar turno
+										{recError ? "⚠ REINTENTAR MIC" : "🎤 ACTIVAR MIC"}
 									</button>
-								</div>
+								)}
+								{listening && (
+									<span style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "var(--red)", display: "flex", alignItems: "center", gap: 6 }}>
+										<span className="arena-live-dot" style={{ margin: 0 }} />
+										ESCUCHANDO
+									</span>
+								)}
+								<button onClick={submit} className="btn-arena" style={{ fontSize: 14, padding: "10px 24px" }}>
+									<span>TERMINAR TURNO</span>
+								</button>
 							</>
 						) : (
 							<>
-								<p className="text-xs text-amber-300/80">
-									{!recSupported
-										? "Tu navegador no soporta transcripción por voz (probá Chrome/Edge); escribí tu rima."
-										: "Los subtítulos por voz necesitan localhost o HTTPS (estás en una IP); escribí tu rima."}
-								</p>
-								<textarea
-									autoFocus
-									value={draft}
-									onChange={(e) => handleDraft(e.target.value)}
-									placeholder="Escribí tu rima…"
-									className="h-24 w-full resize-none rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm outline-none focus:border-fuchsia-400/60"
-								/>
-								<button
-									onClick={submit}
-									className="self-end rounded-lg bg-fuchsia-500 px-5 py-2 text-sm font-bold text-black hover:brightness-110"
-								>
-									Enviar verso
+								<button onClick={submit} className="btn-arena" style={{ fontSize: 14, padding: "10px 24px" }}>
+									<span>ENVIAR VERSO</span>
 								</button>
 							</>
 						)}
 					</div>
 				)}
 
-				{battle.phase === "turn" && !isMyTurn && (
-					<div className="text-center">
-						<p className="text-sm text-white/60">
-							Turno de <span className="font-bold text-cyan-300">{opp.name}</span>
-							{remaining !== null && <span className="ml-2 font-mono text-white/40">{remaining}s</span>}
-						</p>
-						{opponentCaption && <p className="mt-2 text-lg text-cyan-200">{opponentCaption}</p>}
+				{/* Text input fallback on my turn */}
+				{battle.phase === "turn" && isMyTurn && (!recSupported || !recSecure) && (
+					<div style={{ position: "absolute", bottom: 70, left: 0, right: "50%", zIndex: 15, padding: "0 18px" }}>
+						<textarea
+							autoFocus
+							value={draft}
+							onChange={(e) => handleDraft(e.target.value)}
+							placeholder="Escribí tu rima…"
+							className="verse-draft"
+						/>
 					</div>
 				)}
 
-				{battle.phase === "judging" && (
-					<p className="text-center text-sm text-white/60 animate-battle-pulse">⚖️ El juez está evaluando…</p>
-				)}
-
-				{battle.phase === "result" && battle.verdict && (
-					<Result battle={battle} myRole={myRole} onLeave={onLeave} />
-				)}
-
-				{battle.phase === "aborted" && (
-					<div className="flex flex-col items-center gap-3">
-						<p className="text-sm text-red-300">El rival abandonó la batalla.</p>
-						<button onClick={onLeave} className="rounded-lg border border-white/15 px-5 py-2 text-sm hover:bg-white/5">
-							Volver
-						</button>
-					</div>
-				)}
+				{/* Leave button */}
+				<button
+					onClick={onLeave}
+					className="btn-ghost"
+					style={{ position: "absolute", top: 20, right: 20, zIndex: 25, fontSize: 10 }}
+				>
+					ABANDONAR
+				</button>
 			</div>
+		</>
+	);
+}
+
+function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole: Role; onLeave: () => void }) {
+	const v = battle.verdict!;
+	const draw = v.winner === "draw";
+	const youWon = !draw && v.winner === myRole;
+	const [stage, setStage] = useState<"suspense" | "votes" | "final">("suspense");
+	const winnerRole = draw ? null : (v.winner as Role);
+	const winnerName = winnerRole ? battle.players[winnerRole].name.toUpperCase() : "RÉPLICA";
+	const winnerVotes = winnerRole ? v.judges.filter((judge) => judge.vote === winnerRole).length : 0;
+	const voteLine = draw
+		? "3 JUECES PIDEN RÉPLICA"
+		: winnerVotes === 3
+			? "UNANIMIDAD"
+			: `${winnerVotes} - ${3 - winnerVotes}`;
+	const title = draw ? "RÉPLICA" : youWon ? "GANASTE" : "PERDISTE";
+	const myElo = v.elo?.[myRole] ?? null;
+
+	useEffect(() => {
+		const votes = setTimeout(() => setStage("votes"), 1000);
+		const final = setTimeout(() => setStage("final"), 2850);
+		return () => {
+			clearTimeout(votes);
+			clearTimeout(final);
+		};
+	}, [battle.battleId, battle.replicaCount]);
+
+	return (
+		<div className="battle-phase translucent">
+			<div className="arena-grain" />
+			<div className="arena-vignette" />
+			<div className="judgment-kicker">
+				{stage === "suspense" ? "EL JURADO DELIBERA" : voteLine}
+			</div>
+
+			<div className={`judge-row stage-${stage}`}>
+				{v.judges.map((judge, index) => (
+					<JudgeCard key={judge.judge} vote={judge.vote} delay={index * 220} />
+				))}
+			</div>
+
+			<div className={`winner-name result-title stage-${stage}`} style={{ color: draw || youWon ? "var(--red)" : "var(--bone-dim)" }}>
+				{stage === "suspense" ? "..." : stage === "final" ? title : winnerName}
+			</div>
+
+			{stage !== "suspense" && (v.detail ? (
+				<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 24, width: "min(720px, 92vw)", marginTop: 10 }}>
+					<div className={`result-score-card${v.winner === "p1" ? " winner" : ""}`}>
+						<PlayerScore name={battle.players.p1.name} total={v.scores.p1} pv={v.detail.p1} highlight={v.winner === "p1"} />
+					</div>
+					<div className={`result-score-card${v.winner === "p2" ? " winner" : ""}`}>
+						<PlayerScore name={battle.players.p2.name} total={v.scores.p2} pv={v.detail.p2} highlight={v.winner === "p2"} />
+					</div>
+				</div>
+			) : (
+				<div style={{ display: "flex", gap: 40, fontFamily: "var(--font-display)", fontSize: 32, textTransform: "uppercase" }}>
+					<div style={{ textAlign: "center" }}>
+						<div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.2em", color: "var(--bone-dim)", marginBottom: 4 }}>{battle.players.p1.name}</div>
+						{v.scores.p1}
+					</div>
+					<div style={{ color: "var(--bone-dim)", alignSelf: "center", fontSize: 20 }}>VS</div>
+					<div style={{ textAlign: "center" }}>
+						<div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.2em", color: "var(--bone-dim)", marginBottom: 4 }}>{battle.players.p2.name}</div>
+						{v.scores.p2}
+					</div>
+				</div>
+			))}
+
+			{stage === "final" && !draw && (
+				<div className={`elo-impact${v.elo?.ranked ? " ranked" : ""}`}>
+					{v.elo?.ranked && myElo ? (
+						<AnimatedElo before={myElo.before} after={myElo.after} delta={myElo.delta} />
+					) : (
+						<span>{v.elo?.reason ?? "ELO no disponible"}</span>
+					)}
+				</div>
+			)}
+
+			{stage === "final" && draw && <div className="replica-note">LA SALA ARRANCA DE NUEVO</div>}
+
+			{stage === "final" && v.rationale && (
+				<div style={{ maxWidth: 600, background: "var(--ink-2)", border: "1px solid var(--line)", borderLeft: "4px solid var(--red)", padding: "14px 20px", fontFamily: "var(--font-body)", fontSize: 14, color: "var(--bone-dim)", lineHeight: 1.5 }}>
+					<span style={{ color: "var(--red)", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>EL JURADO</span>
+					{v.rationale}
+				</div>
+			)}
+
+			{stage === "final" && !draw && (
+				<div style={{ display: "flex", gap: 18, marginTop: 10 }}>
+					<button onClick={onLeave} className="btn-arena" style={{ fontSize: 20, padding: "16px 36px" }}>
+						<span>REVANCHA</span>
+					</button>
+					<button onClick={onLeave} className="btn-ghost">SALIR DE LA ARENA</button>
+				</div>
+			)}
 		</div>
 	);
 }
 
-function Result({ battle, myRole, onLeave }: { battle: BattleState; myRole: Role; onLeave: () => void }) {
-	const v = battle.verdict!;
-	const youWon = v.winner === myRole;
-	const draw = v.winner === "draw";
-	const title = draw ? "EMPATE" : youWon ? "¡GANASTE!" : "Perdiste";
-	const color = draw ? "text-white" : youWon ? "text-emerald-400" : "text-red-400";
-
+function JudgeCard({ vote, delay }: { vote: Role | "replica"; delay: number }) {
+	const label = vote === "replica" ? "RÉPLICA" : vote === "p1" ? "MC IZQ" : "MC DER";
 	return (
-		<div className="flex flex-col items-center gap-4 text-center">
-			<h2 className={`text-4xl font-black ${color}`}>{title}</h2>
-			<div className="flex gap-8 text-sm">
-				<div>
-					<div className="text-white/40">{battle.players.p1.name}</div>
-					<div className="text-2xl font-bold">{v.scores.p1}</div>
-				</div>
-				<div className="self-center text-white/20">vs</div>
-				<div>
-					<div className="text-white/40">{battle.players.p2.name}</div>
-					<div className="text-2xl font-bold">{v.scores.p2}</div>
-				</div>
+		<div className={`judge-card vote-${vote}`} style={{ animationDelay: `${delay}ms` }}>
+			<div className="judge-body">
+				<span className="judge-head" />
+				<span className="judge-arm left" />
+				<span className="judge-arm right" />
 			</div>
-			<p className="max-w-lg text-xs text-white/50">{v.rationale}</p>
-			<button
-				onClick={onLeave}
-				className="rounded-xl bg-gradient-to-r from-fuchsia-500 to-cyan-500 px-6 py-3 font-bold text-black"
-			>
-				Otra batalla
-			</button>
+			<div className="judge-label">{label}</div>
+		</div>
+	);
+}
+
+function AnimatedElo({ before, after, delta }: { before: number | null; after: number | null; delta: number }) {
+	const [value, setValue] = useState(before ?? after ?? 0);
+
+	useEffect(() => {
+		if (before === null || after === null) return;
+		const steps = 18;
+		let current = 0;
+		const id = setInterval(() => {
+			current += 1;
+			const t = current / steps;
+			setValue(Math.round(before + (after - before) * t));
+			if (current >= steps) clearInterval(id);
+		}, 38);
+		return () => clearInterval(id);
+	}, [before, after]);
+
+	if (before === null || after === null) return null;
+	return (
+		<>
+			<span className="elo-before">{before}</span>
+			<span className={`elo-delta${delta >= 0 ? " plus" : " minus"}`}>
+				{delta >= 0 ? "+" : ""}
+				{delta}
+			</span>
+			<span className="elo-after">{value}</span>
+		</>
+	);
+}
+
+function PlayerScore({
+	name,
+	total,
+	pv,
+	highlight,
+}: {
+	name: string;
+	total: number;
+	pv: PlayerVerdict;
+	highlight: boolean;
+}) {
+	return (
+		<div>
+			<div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+				<span style={{ fontFamily: "var(--font-display)", fontSize: 20, textTransform: "uppercase", color: highlight ? "var(--red)" : "var(--bone)" }}>{name}</span>
+				<span style={{ fontFamily: "var(--font-display)", fontSize: 36, color: highlight ? "var(--red)" : "var(--bone)" }}>{total}</span>
+			</div>
+			<div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+				{CRITERIA.map((c) => {
+					const val = pv.criteria[c];
+					return (
+						<div key={c} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+							<span style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--bone-dim)", width: 56, flexShrink: 0 }}>{CRITERIA_LABELS[c]}</span>
+							{val === null ? (
+								<span style={{ color: "var(--line)" }}>—</span>
+							) : (
+								<>
+									<div style={{ flex: 1, height: 4, background: "var(--ink-3)", border: "1px solid var(--line)", overflow: "hidden" }}>
+										<div style={{ height: "100%", background: "var(--red)", width: `${val * 10}%`, boxShadow: "0 0 6px rgba(232,25,44,0.5)" }} />
+									</div>
+									<span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--bone-dim)", width: 20, textAlign: "right" }}>{val}</span>
+								</>
+							)}
+						</div>
+					);
+				})}
+			</div>
+			{pv.comment && (
+				<p style={{ marginTop: 10, fontFamily: "var(--font-body)", fontSize: 12, fontStyle: "italic", color: "var(--bone-dim)", lineHeight: 1.4 }}>{pv.comment}</p>
+			)}
 		</div>
 	);
 }

@@ -1,3 +1,4 @@
+import { getModalityStats, getProfile, listBattles, listRanking, listUserBattles } from "@rap/db";
 import type { Env } from "./env";
 import { BattleRoom } from "./battle-room";
 import { MatchmakingRoom } from "./matchmaking";
@@ -12,6 +13,18 @@ const CORS_HEADERS: Record<string, string> = {
 	"Access-Control-Allow-Headers": "Content-Type",
 };
 
+function limitFrom(url: URL, fallback: number, max: number): number {
+	const raw = Number(url.searchParams.get("limit") ?? fallback);
+	return Number.isFinite(raw) ? Math.max(1, Math.min(max, Math.floor(raw))) : fallback;
+}
+
+function json(data: unknown, init?: ResponseInit): Response {
+	return Response.json(data, {
+		...init,
+		headers: { ...CORS_HEADERS, ...(init?.headers ?? {}) },
+	});
+}
+
 export default {
 	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
@@ -21,12 +34,40 @@ export default {
 		}
 
 		if (url.pathname === "/health") {
-			return Response.json({ ok: true, service: "rap-realtime" }, { headers: CORS_HEADERS });
+			return json({ ok: true, service: "rap-realtime" });
+		}
+
+		if (url.pathname === "/ranking") {
+			if (!env.DB) return json({ ranking: [] });
+			return json({ ranking: await listRanking(env.DB, limitFrom(url, 50, 100)) });
+		}
+
+		if (url.pathname === "/battles") {
+			if (!env.DB) return json({ battles: [] });
+			return json({ battles: await listBattles(env.DB, limitFrom(url, 50, 100)) });
+		}
+
+		if (url.pathname === "/profile") {
+			if (!env.DB) return json({ profile: null, battles: [], modalityStats: [] });
+			const id = url.searchParams.get("id") ?? "";
+			if (!id) return json({ error: "Falta id" }, { status: 400 });
+			const profile = await getProfile(env.DB, id);
+			return json({
+				profile,
+				battles: profile ? await listUserBattles(env.DB, profile.id, limitFrom(url, 30, 100)) : [],
+				modalityStats: profile ? await getModalityStats(env.DB, profile.id) : [],
+			});
 		}
 
 		// Transcripción en vivo: proxy de streaming a Deepgram.
 		if (url.pathname === "/ws/transcribe") {
 			return handleTranscribe(request, env);
+		}
+
+		// Stats: jugadores en cola por modalidad.
+		if (url.pathname === "/stats") {
+			const id = env.MATCHMAKING.idFromName("global");
+			return env.MATCHMAKING.get(id).fetch(request);
 		}
 
 		// Matchmaking: un único DO global que mantiene las colas por modalidad.

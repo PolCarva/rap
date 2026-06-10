@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "node ../../scripts/lint-web.mjs",
     "typecheck": "tsc --noEmit",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
@@ -20,6 +20,7 @@
     "next": "16.2.6",
     "react": "^19.1.7",
     "react-dom": "^19.1.7",
+    "three": "^0.184.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -28,7 +29,8 @@
     "@types/node": "^20.19.42",
     "@types/react": "^19.1.7",
     "@types/react-dom": "^19.1.7",
-    "eslint": "^9",
+    "@types/three": "^0.184.1",
+    "eslint": "^9.17.0",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
     "typescript": "^5.7.4",

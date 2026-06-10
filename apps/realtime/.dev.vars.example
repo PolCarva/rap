@@ -1,3 +1,7 @@
 # Copiá a `.dev.vars` y completá.
 # Deepgram para transcripción en vivo. Key en https://console.deepgram.com
 DEEPGRAM_API_KEY=
+# OpenRouter para el juez IA. Key en https://openrouter.ai/keys
+OPENROUTER_API_KEY=
+# Opcional. Default: openai/gpt-4o
+OPENROUTER_JUDGE_MODEL=openai/gpt-4o

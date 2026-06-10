@@ -21,12 +21,13 @@ interface DeepgramMessage {
  * Cross-browser: anda en Brave, Firefox, Chrome y Safari.
  */
 export function useDeepgramTranscription() {
-	const supported = useRef<boolean>(
+	const [supported] = useState(
+		() =>
 		typeof window !== "undefined" &&
 			typeof AudioWorkletNode !== "undefined" &&
 			!!navigator.mediaDevices?.getUserMedia,
-	).current;
-	const secure = useRef<boolean>(typeof window === "undefined" ? true : window.isSecureContext).current;
+	);
+	const [secure] = useState(() => (typeof window === "undefined" ? true : window.isSecureContext));
 
 	const [listening, setListening] = useState(false);
 	const [error, setError] = useState<string | null>(null);

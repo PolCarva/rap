@@ -1,21 +1,45 @@
 import { DurableObject } from "cloudflare:workers";
+import { recordBattleResult, recordBattleStart, type PersistedIdentity } from "@rap/db";
 import {
 	getModality,
 	roomClientMessageSchema,
 	roomInitSchema,
 	type BattleState,
+	type EloImpact,
+	type PlayerIdentity,
 	type Role,
 	type RoomInit,
 	type RoomServerMessage,
 } from "@rap/shared";
 import type { Env } from "./env";
-import { judgePlaceholder } from "./judge";
+import { judgeBattle } from "./judge";
 
 const COUNTDOWN_MS = 3000;
+const REPLICA_PAUSE_MS = 5200;
 
 interface RoomAttachment {
 	role: Role;
 	name: string;
+	sessionId: string;
+	userId: string | null;
+	isGuest: boolean;
+}
+
+function normalizeIdentity(player: string | PlayerIdentity, fallbackName: string): PersistedIdentity {
+	if (typeof player === "string") {
+		return {
+			sessionId: crypto.randomUUID(),
+			userId: null,
+			name: player || fallbackName,
+			isGuest: true,
+		};
+	}
+	return {
+		sessionId: player.sessionId,
+		userId: player.userId,
+		name: player.name,
+		isGuest: player.isGuest,
+	};
 }
 
 /**
@@ -51,23 +75,28 @@ export class BattleRoom extends DurableObject<Env> {
 
 	private async initBattle(init: RoomInit): Promise<void> {
 		const mod = getModality(init.modality);
+		const p1 = normalizeIdentity(init.players.p1, "MC 1");
+		const p2 = normalizeIdentity(init.players.p2, "MC 2");
 		const state: BattleState = {
 			battleId: init.battleId,
 			modality: init.modality,
 			words: init.words,
+			beat: init.beat ?? null,
 			phase: "lobby",
 			round: 0,
 			totalRounds: mod.rounds,
 			activeRole: null,
 			deadline: null,
 			players: {
-				p1: { name: init.players.p1, connected: false, ready: false },
-				p2: { name: init.players.p2, connected: false, ready: false },
+				p1: { name: p1.name, sessionId: p1.sessionId, userId: p1.userId, isGuest: p1.isGuest, connected: false, ready: false },
+				p2: { name: p2.name, sessionId: p2.sessionId, userId: p2.userId, isGuest: p2.isGuest, connected: false, ready: false },
 			},
 			verses: { p1: [], p2: [] },
 			verdict: null,
+			replicaCount: 0,
 		};
 		await this.setState(state);
+		await this.persistStart(state);
 	}
 
 	private getState(): Promise<BattleState | undefined> {
@@ -93,13 +122,20 @@ export class BattleRoom extends DurableObject<Env> {
 
 		switch (msg.kind) {
 			case "hello": {
-				ws.serializeAttachment({ role: msg.role, name: msg.name } satisfies RoomAttachment);
+				const sessionId = msg.sessionId ?? state.players[msg.role].sessionId ?? crypto.randomUUID();
+				const userId = msg.userId ?? state.players[msg.role].userId ?? null;
+				const isGuest = msg.isGuest ?? state.players[msg.role].isGuest ?? !userId;
+				ws.serializeAttachment({ role: msg.role, name: msg.name, sessionId, userId, isGuest } satisfies RoomAttachment);
 				state.players[msg.role].connected = true;
 				state.players[msg.role].name = msg.name;
+				state.players[msg.role].sessionId = sessionId;
+				state.players[msg.role].userId = userId;
+				state.players[msg.role].isGuest = isGuest;
 				if (state.phase === "lobby" && state.players.p1.connected && state.players.p2.connected) {
 					state.phase = "ready_check";
 				}
 				await this.setState(state);
+				await this.persistStart(state);
 				return this.broadcast(state);
 			}
 
@@ -123,6 +159,16 @@ export class BattleRoom extends DurableObject<Env> {
 				for (const peer of this.ctx.getWebSockets()) {
 					if (peer === ws) continue;
 					this.send(peer, { kind: "caption", role: att.role, text: msg.text });
+				}
+				return;
+			}
+
+			case "signal": {
+				const att = ws.deserializeAttachment() as RoomAttachment | null;
+				if (!att) return;
+				for (const peer of this.ctx.getWebSockets()) {
+					if (peer === ws) continue;
+					this.send(peer, { kind: "signal", role: att.role, signal: msg.signal });
 				}
 				return;
 			}
@@ -163,6 +209,10 @@ export class BattleRoom extends DurableObject<Env> {
 			}
 			return this.advance(state);
 		}
+
+		if (state.phase === "result" && state.verdict?.winner === "draw") {
+			return this.startReplica(state);
+		}
 	}
 
 	private async startTurn(state: BattleState, round: number, role: Role): Promise<void> {
@@ -196,10 +246,33 @@ export class BattleRoom extends DurableObject<Env> {
 		await this.setState(state);
 		await this.broadcast(state);
 
-		// Paso de IA (placeholder por ahora).
-		state.verdict = judgePlaceholder(state);
+		// Juez IA (con fallback a heurística adentro de judgeBattle).
+		const verdict = await judgeBattle(state, this.env);
 		state.phase = "result";
+		state.verdict = verdict;
+		if (verdict.winner === "draw") {
+			state.deadline = Date.now() + REPLICA_PAUSE_MS;
+			await this.setState(state);
+			await this.ctx.storage.setAlarm(state.deadline);
+			return this.broadcast(state);
+		}
+
+		const elo = await this.persistResult(state);
+		if (elo && state.verdict) state.verdict = { ...state.verdict, elo };
 		await this.setState(state);
+		return this.broadcast(state);
+	}
+
+	private async startReplica(state: BattleState): Promise<void> {
+		state.replicaCount += 1;
+		state.phase = "countdown";
+		state.round = 0;
+		state.activeRole = null;
+		state.deadline = Date.now() + COUNTDOWN_MS;
+		state.verses = { p1: [], p2: [] };
+		state.verdict = null;
+		await this.setState(state);
+		await this.ctx.storage.setAlarm(state.deadline);
 		return this.broadcast(state);
 	}
 
@@ -221,6 +294,62 @@ export class BattleRoom extends DurableObject<Env> {
 		const data = JSON.stringify({ kind: "snapshot", state } satisfies RoomServerMessage);
 		for (const ws of this.ctx.getWebSockets()) {
 			ws.send(data);
+		}
+	}
+
+	private identityOf(state: BattleState, role: Role): PersistedIdentity {
+		const player = state.players[role];
+		return {
+			sessionId: player.sessionId ?? `${state.battleId}:${role}`,
+			userId: player.userId,
+			name: player.name,
+			isGuest: player.isGuest,
+		};
+	}
+
+	private async persistStart(state: BattleState): Promise<void> {
+		if (!this.env.DB) return;
+		try {
+			await recordBattleStart(this.env.DB, {
+				id: state.battleId,
+				modality: state.modality,
+				words: state.words,
+				beat: state.beat,
+				players: {
+					p1: this.identityOf(state, "p1"),
+					p2: this.identityOf(state, "p2"),
+				},
+				startedAt: Date.now(),
+			});
+		} catch (error) {
+			console.warn("persistStart failed", error);
+		}
+	}
+
+	private async persistResult(state: BattleState): Promise<EloImpact | null> {
+		if (!this.env.DB || !state.verdict) return null;
+		try {
+			return await recordBattleResult(this.env.DB, {
+				id: state.battleId,
+				modality: state.modality,
+				words: state.words,
+				beat: state.beat,
+				players: {
+					p1: this.identityOf(state, "p1"),
+					p2: this.identityOf(state, "p2"),
+				},
+				winner: state.verdict.winner,
+				scoreP1: state.verdict.scores.p1,
+				scoreP2: state.verdict.scores.p2,
+				rationale: state.verdict.rationale,
+				model: state.verdict.model,
+				detail: { players: state.verdict.detail ?? null, judges: state.verdict.judges },
+				verses: state.verses,
+				endedAt: Date.now(),
+			});
+		} catch (error) {
+			console.warn("persistResult failed", error);
+			return null;
 		}
 	}
 }

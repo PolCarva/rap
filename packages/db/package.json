@@ -12,8 +12,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply rap-db --local",
-    "db:migrate": "wrangler d1 migrations apply rap-db --remote"
+    "db:migrate:local": "wrangler d1 migrations apply rap-db --local --config ../../apps/realtime/wrangler.jsonc",
+    "db:migrate": "wrangler d1 migrations apply rap-db --remote --config ../../apps/realtime/wrangler.jsonc"
   },
   "dependencies": {
     "drizzle-orm": "^0.38.3"

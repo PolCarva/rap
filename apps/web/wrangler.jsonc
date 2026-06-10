@@ -32,6 +32,14 @@
 			"service": "rap"
 		}
 	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "rap-db",
+			"database_id": "6b229022-703e-4579-ab40-c9f095eb9b80",
+			"migrations_dir": "../../packages/db/migrations"
+		}
+	],
 	"observability": {
 		"enabled": true
 	},

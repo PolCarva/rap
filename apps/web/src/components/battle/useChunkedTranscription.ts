@@ -38,12 +38,13 @@ async function blobToBase64(blob: Blob): Promise<string> {
  * Firefox, Chrome y Safari. No es palabra-por-palabra: aparece cada ~3s.
  */
 export function useChunkedTranscription() {
-	const supported = useRef<boolean>(
+	const [supported] = useState(
+		() =>
 		typeof MediaRecorder !== "undefined" &&
 			typeof navigator !== "undefined" &&
 			!!navigator.mediaDevices?.getUserMedia,
-	).current;
-	const secure = useRef<boolean>(typeof window === "undefined" ? true : window.isSecureContext).current;
+	);
+	const [secure] = useState(() => (typeof window === "undefined" ? true : window.isSecureContext));
 
 	const [listening, setListening] = useState(false);
 	const [error, setError] = useState<string | null>(null);

@@ -48,8 +48,8 @@ function getCtor(): SpeechCtor | null {
  * queremos seguir escuchando.
  */
 export function useSpeechRecognition(lang = "es-AR") {
-	const supported = useRef<boolean>(getCtor() !== null).current;
-	const secure = useRef<boolean>(typeof window === "undefined" ? true : window.isSecureContext).current;
+	const [supported] = useState(() => getCtor() !== null);
+	const [secure] = useState(() => (typeof window === "undefined" ? true : window.isSecureContext));
 	const [listening, setListening] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [transcript, setTranscript] = useState(""); // finales acumulados

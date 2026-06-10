@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
 
 export * from "./schema";
+export * from "./app";
 
 /** Crea un cliente Drizzle tipado a partir de un binding D1. */
 export function getDb(d1: D1Database) {

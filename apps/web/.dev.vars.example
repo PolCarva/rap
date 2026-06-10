@@ -6,3 +6,9 @@ NEXTJS_ENV=development
 OPENROUTER_API_KEY=sk-or-...
 # Opcional. Default: openai/gpt-4o-mini-transcribe
 OPENROUTER_STT_MODEL=openai/gpt-4o-mini-transcribe
+
+# Secreto para firmar sesiones (HMAC-SHA256). Generá uno con: openssl rand -hex 32
+JWT_SECRET=cambia-esto-en-produccion
+
+# Clave simple para /backoffice. Usala como password en la pantalla admin.
+BACKOFFICE_PASSWORD=cambia-esto-tambien

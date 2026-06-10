@@ -13,9 +13,10 @@ const fail = (m) => {
 function queue(name) {
 	return new Promise((resolve, reject) => {
 		const ws = new WebSocket(`${BASE}/ws/matchmaking`);
+		const sessionId = crypto.randomUUID();
 		const timer = setTimeout(() => reject(new Error(`matchmaking timeout (${name})`)), 10000);
 		ws.addEventListener("open", () =>
-			ws.send(JSON.stringify({ kind: "queue", modality: MODALITY, name })),
+			ws.send(JSON.stringify({ kind: "queue", modality: MODALITY, name, sessionId, userId: null, isGuest: true })),
 		);
 		ws.addEventListener("message", (ev) => {
 			const msg = JSON.parse(ev.data);
@@ -51,7 +52,14 @@ function playBattle(match) {
 			}
 			if (s.phase === "turn" && s.activeRole === role && !versesSent.has(s.round)) {
 				versesSent.add(s.round);
-				ws.send(JSON.stringify({ kind: "verse", text: `${name} ronda ${s.round} ${MODALITY} fuego` }));
+				const w = s.words.length ? ` metiendo ${s.words.join(" y ")}` : "";
+				const lines = {
+					p1: `Vengo con el flow afilado${w}, te piso el ritmo y te dejo callado, soy el más buscado del tablado.`,
+					p2: `Respondo a tu ataque sin pensarlo${w}, mi punchline te cae como un rayo, y en cada rima yo te desarmo.`,
+				};
+				// EMPTY=p2 simula un jugador que no rapeó (verso vacío).
+				const text = process.env.EMPTY === role ? "" : lines[role];
+				ws.send(JSON.stringify({ kind: "verse", text }));
 			}
 			if (s.phase === "result") {
 				clearTimeout(timer);
@@ -82,10 +90,18 @@ function playBattle(match) {
 	if (!verdict) fail("no llegó veredicto");
 	if (r1.state.phase !== "result" || r2.state.phase !== "result") fail("no terminó en 'result'");
 
-	log("3) ✅ Veredicto:");
+	log("3) ✅ Veredicto del juez:");
 	log(`     ganador: ${verdict.winner}  | scores p1=${verdict.scores.p1} p2=${verdict.scores.p2}`);
-	log(`     versos p1: ${JSON.stringify(r1.state.verses.p1)}`);
-	log(`     versos p2: ${JSON.stringify(r1.state.verses.p2)}`);
-	log("\n✅ Walking skeleton funciona de punta a punta.");
+	log(`     modelo: ${verdict.model ?? "(heurística)"}`);
+	log(`     fallo: ${verdict.rationale}`);
+	if (verdict.detail) {
+		for (const role of ["p1", "p2"]) {
+			const d = verdict.detail[role];
+			log(`     ${role} (${d.total}): ${JSON.stringify(d.criteria)}  — ${d.comment}`);
+		}
+	} else {
+		log("     ⚠️  sin detalle por criterios (¿juez en modo heurístico?)");
+	}
+	log("\n✅ Batalla + juez de punta a punta.");
 	process.exit(0);
 })().catch((e) => fail(e.message));
