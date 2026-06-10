@@ -351,9 +351,19 @@ export function BattleStage({
 					</div>
 				)}
 
+				{/* Juicio: interstitial dramático mientras delibera la IA */}
+				{battle.phase === "judging" && (
+					<div className="judging-overlay">
+						<div className="judging-scales">⚖</div>
+						<div className="judging-title">EL JURADO DELIBERA</div>
+						<div className="judging-sub">ANALIZANDO FLOW · RIMAS · PUNCHLINES</div>
+						<div className="judging-bar"><span /></div>
+					</div>
+				)}
+
 				{/* Controls for my turn */}
 				{battle.phase === "turn" && isMyTurn && (
-					<div className="fighter-controls" style={{ left: "0%", right: "50%", bottom: 20 }}>
+					<div className="fighter-controls mine">
 						{!micBlocked ? (
 							<>
 								{(!listening || recError) && (
@@ -396,7 +406,7 @@ export function BattleStage({
 
 				{/* Text input fallback on my turn (mic bloqueado o sin soporte) */}
 				{battle.phase === "turn" && isMyTurn && micBlocked && (
-					<div style={{ position: "absolute", bottom: 70, left: 0, right: "50%", zIndex: 15, padding: "0 18px" }}>
+					<div className="verse-draft-zone">
 						<div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--red)", marginBottom: 6 }}>
 							{recError === "not-allowed" ? "MIC SIN PERMISO — MODO TEXTO" : "MODO TEXTO"}
 						</div>

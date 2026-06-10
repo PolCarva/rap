@@ -689,11 +689,11 @@ body {
 
 /* ---- Battle arena styles ---- */
 .battle-arena {
-	/* Fixed por encima del nav del sitio: la batalla es full-screen e inmersiva. */
+	/* Fixed por encima del nav del sitio (z 120): batalla full-screen e inmersiva. */
 	position: fixed;
 	inset: 0;
 	height: 100dvh;
-	z-index: 90;
+	z-index: 130;
 	display: grid;
 	grid-template-columns: 1fr 1fr;
 	background: var(--ink);
@@ -1017,6 +1017,121 @@ body {
 	pointer-events: auto;
 }
 
+/* Controles del turno propio: sobre MI panel (mitad izquierda en desktop). */
+.fighter-controls.mine {
+	left: 0;
+	right: 50%;
+	bottom: 20px;
+	z-index: 15;
+}
+
+/* Zona del textarea de respaldo (mic bloqueado). */
+.verse-draft-zone {
+	position: absolute;
+	bottom: 70px;
+	left: 0;
+	right: 50%;
+	z-index: 15;
+	padding: 0 18px;
+}
+
+/* Interstitial de juicio */
+.judging-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 40;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 14px;
+	background: rgba(5, 5, 8, 0.88);
+	backdrop-filter: blur(3px);
+	animation: judgingIn 0.5s ease-out;
+}
+
+@keyframes judgingIn {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+.judging-scales {
+	font-size: 64px;
+	animation: scalesTilt 2.2s ease-in-out infinite;
+	filter: drop-shadow(0 0 18px rgba(232, 25, 44, 0.55));
+}
+
+@keyframes scalesTilt {
+	0%, 100% { transform: rotate(-7deg); }
+	50% { transform: rotate(7deg); }
+}
+
+.judging-title {
+	font-family: var(--font-display);
+	font-size: clamp(28px, 4.5vw, 54px);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--bone);
+}
+
+.judging-sub {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0.3em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+}
+
+.judging-bar {
+	width: min(320px, 70vw);
+	height: 3px;
+	background: var(--ink-3);
+	border: 1px solid var(--line);
+	overflow: hidden;
+}
+
+.judging-bar span {
+	display: block;
+	height: 100%;
+	width: 40%;
+	background: var(--red);
+	box-shadow: 0 0 10px rgba(232, 25, 44, 0.7);
+	animation: judgingSweep 1.3s ease-in-out infinite alternate;
+}
+
+@keyframes judgingSweep {
+	from { transform: translateX(-60%); }
+	to { transform: translateX(220%); }
+}
+
+/* Searching: vivos + tips */
+.searching-live {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--red);
+}
+
+.searching-tip {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+	max-width: 420px;
+	text-align: center;
+	animation: tipIn 0.6s ease-out;
+}
+
+@keyframes tipIn {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
 /* VS badge */
 .vs-badge {
 	position: absolute;
@@ -1107,11 +1222,11 @@ body {
 	padding: 8px 28px;
 }
 
-/* Phase overlays */
+/* Phase overlays (por encima del nav del sitio, z 120) */
 .battle-phase {
 	position: fixed;
 	inset: 0;
-	z-index: 100;
+	z-index: 140;
 	background: var(--ink);
 	display: flex;
 	flex-direction: column;
@@ -2375,6 +2490,60 @@ body {
 
 	.backoffice-header p {
 		text-align: left;
+	}
+}
+
+/* Arena en pantallas angostas: paneles apilados, controles a lo ancho. */
+@media (max-width: 760px) {
+	.battle-arena {
+		grid-template-columns: 1fr;
+		grid-template-rows: 1fr 1fr;
+	}
+
+	.fighter {
+		border-right: none;
+		border-bottom: 1px solid var(--line);
+	}
+
+	.fighter-controls.mine,
+	.verse-draft-zone {
+		right: 0;
+	}
+
+	.fighter-controls.mine {
+		bottom: calc(50% + 14px);
+	}
+
+	.verse-draft-zone {
+		bottom: calc(50% + 64px);
+	}
+
+	.vs-badge {
+		font-size: 30px;
+		padding: 8px 14px;
+	}
+
+	.turn-banner {
+		top: 12px;
+		width: 100%;
+		padding: 0 12px;
+	}
+
+	.conn-banner {
+		top: 60px;
+		width: max-content;
+		max-width: 92vw;
+	}
+
+	.prompt-zone {
+		bottom: 12px;
+		min-width: 0;
+		width: 94vw;
+	}
+
+	.prompt-word {
+		font-size: clamp(16px, 5vw, 26px);
+		padding: 6px 14px;
 	}
 }
 
