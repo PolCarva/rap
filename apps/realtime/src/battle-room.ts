@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { recordBattleResult, recordBattleStart, type PersistedIdentity } from "@rap/db";
+import { recordBattleAbort, recordBattleResult, recordBattleStart, type PersistedIdentity } from "@rap/db";
 import {
 	getModality,
 	roomClientMessageSchema,
@@ -259,6 +259,9 @@ export class BattleRoom extends DurableObject<Env> {
 		await this.ctx.storage.delete("graceUntil");
 		await this.setState(state);
 		await this.ctx.storage.setAlarm(Date.now() + ROOM_CLEANUP_MS);
+		if (this.env.DB) {
+			await recordBattleAbort(this.env.DB, state.battleId).catch((error) => console.warn("recordBattleAbort failed", error));
+		}
 		return this.broadcast(state);
 	}
 

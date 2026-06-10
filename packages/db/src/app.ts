@@ -471,6 +471,14 @@ export async function recordBattleStart(db: D1Database, input: BattlePersistInpu
 		.run();
 }
 
+/** Marca una batalla abandonada/abortada para que no quede "en curso" eterna. */
+export async function recordBattleAbort(db: D1Database, battleId: string): Promise<void> {
+	await db
+		.prepare(`UPDATE battles SET status = 'aborted', ended_at = ? WHERE id = ? AND status = 'active'`)
+		.bind(Date.now(), battleId)
+		.run();
+}
+
 export async function recordBattleResult(db: D1Database, input: BattleResultInput): Promise<EloResult> {
 	const p1Id = battleUserId(input.players.p1);
 	const p2Id = battleUserId(input.players.p2);

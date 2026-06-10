@@ -27,7 +27,9 @@ export default async function BattlesPage() {
 										? battle.player1Name
 										: battle.winner === "p2"
 											? battle.player2Name
-											: "En curso";
+											: battle.status === "aborted"
+												? "Abandonada"
+												: "En curso";
 							const modality = modalityIdSchema.safeParse(battle.modality);
 							return (
 								<article key={battle.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
