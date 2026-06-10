@@ -163,6 +163,15 @@ function handleFor(identity: PersistedIdentity): string {
 	return `${base}-${identity.sessionId.slice(-6).toLowerCase()}`;
 }
 
+/**
+ * beat_id solo puede referenciar filas reales de `beats` (FK). Los beats
+ * sintetizados (`synth:*`) viven denormalizados en beat_name/url/bpm.
+ */
+function dbBeatId(beat: PersistedBeat | null): string | null {
+	if (!beat) return null;
+	return beat.id.startsWith("synth:") ? null : beat.id;
+}
+
 function normalizeBeat(row: BeatRow): PersistedBeat {
 	return {
 		id: row.id,
@@ -447,7 +456,7 @@ export async function recordBattleStart(db: D1Database, input: BattlePersistInpu
 			input.id,
 			input.modality,
 			JSON.stringify(input.words),
-			input.beat?.id ?? null,
+			dbBeatId(input.beat),
 			input.beat?.name ?? null,
 			input.beat?.audioUrl ?? null,
 			input.beat?.bpm ?? null,
@@ -508,7 +517,7 @@ export async function recordBattleResult(db: D1Database, input: BattleResultInpu
 				input.winner,
 				input.scoreP1,
 				input.scoreP2,
-				input.beat?.id ?? null,
+				dbBeatId(input.beat),
 				input.beat?.name ?? null,
 				input.beat?.audioUrl ?? null,
 				input.beat?.bpm ?? null,

@@ -1,12 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import { pickBeat } from "@rap/db";
 import {
+	DEV_JWT_SECRET,
 	drawWords,
 	getModality,
 	getSynthBeat,
 	isSynthBeatId,
 	mmClientMessageSchema,
 	randomSynthBeat,
+	verifyRealtimeToken,
 	type Beat,
 	type PlayerIdentity,
 	type MmServerMessage,
@@ -121,6 +123,17 @@ export class MatchmakingRoom extends DurableObject<Env> {
 		const { modality, name } = parsed;
 		const identity = identityFromQueue(parsed);
 		const beatId = parsed.beatId ?? null;
+
+		// Modo rankeado: el userId debe venir respaldado por un token firmado por
+		// la web. Sin token válido se juega como invitado (no mueve ELO).
+		if (identity.userId && !identity.isGuest) {
+			const secret = this.env.JWT_SECRET ?? DEV_JWT_SECRET;
+			const verified = parsed.authToken ? await verifyRealtimeToken(parsed.authToken, secret) : null;
+			if (verified !== identity.userId) {
+				identity.userId = null;
+				identity.isGuest = true;
+			}
+		}
 
 		// Buscar un rival en espera de la misma modalidad. Nunca emparejar a un
 		// jugador consigo mismo (misma sesión en dos pestañas).

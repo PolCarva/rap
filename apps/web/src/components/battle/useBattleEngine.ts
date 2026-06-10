@@ -177,11 +177,21 @@ export function useBattleEngine() {
 	}, [joinBattle]);
 
 	const search = useCallback(
-		(session: RapSession, modality: ModalityId, beatId: string | null) => {
+		async (session: RapSession, modality: ModalityId, beatId: string | null) => {
 			leftRef.current = false;
 			lastPhaseRef.current = null;
 			reconnectAttemptsRef.current = 0;
 			setState({ ...INITIAL, view: "searching" });
+
+			// Modo rankeado: pedir el token que respalda el userId ante el worker.
+			let authToken: string | null = null;
+			if (!session.isGuest && session.userId) {
+				authToken = await fetch("/api/auth/realtime-token")
+					.then((r) => (r.ok ? (r.json() as Promise<{ token: string | null }>) : { token: null }))
+					.then((d) => d.token)
+					.catch(() => null);
+			}
+
 			const ws = new WebSocket(matchmakingUrl());
 			mmRef.current = ws;
 			ws.addEventListener("open", () => {
@@ -194,6 +204,7 @@ export function useBattleEngine() {
 						sessionId: session.sessionId,
 						userId: session.userId,
 						isGuest: session.isGuest,
+						authToken,
 					}),
 				);
 			});

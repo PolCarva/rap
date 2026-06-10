@@ -136,8 +136,10 @@ export class BattleRoom extends DurableObject<Env> {
 					return this.send(ws, { kind: "error", message: "Ese rol ya está conectado" });
 				}
 				const sessionId = msg.sessionId ?? slot.sessionId ?? crypto.randomUUID();
-				const userId = msg.userId ?? slot.userId ?? null;
-				const isGuest = msg.isGuest ?? slot.isGuest ?? !userId;
+				// La identidad de cuenta la fijó el matchmaking (verificada por token);
+				// el hello no puede escalarla.
+				const userId = slot.userId ?? null;
+				const isGuest = slot.userId ? slot.isGuest : true;
 				ws.serializeAttachment({ role: msg.role, name: msg.name, sessionId, userId, isGuest } satisfies RoomAttachment);
 				slot.connected = true;
 				slot.name = msg.name;

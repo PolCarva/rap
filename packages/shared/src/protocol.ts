@@ -49,6 +49,8 @@ export const mmClientMessageSchema = z.discriminatedUnion("kind", [
 		sessionId: z.string().min(1).max(80).optional(),
 		userId: z.string().min(1).max(80).nullable().optional(),
 		isGuest: z.boolean().optional(),
+		/** Token firmado por la web que respalda el userId (modo rankeado). */
+		authToken: z.string().max(600).nullable().optional(),
 	}),
 	z.object({ kind: z.literal("cancel") }),
 ]);
