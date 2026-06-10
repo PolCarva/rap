@@ -1,4 +1,4 @@
-import { getModality, type BattleState, type Role, type Verdict } from "@rap/shared";
+import { analyzeRhymes, getModality, type BattleState, type Role, type Verdict } from "@rap/shared";
 import { z } from "zod";
 import type { Env } from "./env";
 
@@ -72,6 +72,7 @@ export async function judgeBattle(state: BattleState, env: Env): Promise<Verdict
 	const body = JSON.stringify({
 		model,
 		temperature: 0.4,
+		max_tokens: 900,
 		response_format: { type: "json_object" },
 		messages: [
 			{ role: "system", content: systemPrompt(state) },
@@ -91,6 +92,7 @@ export async function judgeBattle(state: BattleState, env: Env): Promise<Verdict
 					"X-Title": "Rap Arena Judge",
 				},
 				body,
+				signal: AbortSignal.timeout(25_000),
 			});
 			if (!res.ok) continue;
 
@@ -203,6 +205,8 @@ function systemPrompt(state: BattleState): string {
 	return [
 		"Sos un jurado profesional de freestyle (nivel FMS / Red Bull Batalla), criterio técnico, exigente y justo. Hablás en español rioplatense.",
 		"Vas a recibir las transcripciones automáticas (speech-to-text) de una batalla. Pueden tener errores menores de transcripción: sé indulgente con esos artefactos y juzgá la intención.",
+		"Cada jugador trae un [análisis fonético objetivo] calculado por software (familias de rima y densidad). Usalo como ancla del criterio 'rimas': no premies rimas que el análisis no respalda ni ignores multisilábicas detectadas.",
+		"Usá el rango completo de puntajes: un verso flojo merece 2-4, uno sólido 5-7, uno excepcional 8-10. No agrupes todo en 5-7.",
 		"",
 		"Evaluá a cada jugador en 5 criterios, cada uno de 0 a 10:",
 		"- flow: fluidez, cadencia, continuidad y manejo del ritmo (inferido de la estructura y regularidad de los versos).",
@@ -222,6 +226,27 @@ function systemPrompt(state: BattleState): string {
 	].join("\n");
 }
 
+/**
+ * Métricas objetivas de rima calculadas con el motor fonético local. Le dan al
+ * modelo una señal medible para anclar el puntaje de "rimas" (el texto plano
+ * de una transcripción no siempre deja obvias las rimas multisilábicas).
+ */
+function rhymeStats(verses: string[]): string {
+	const text = verses.join("\n");
+	if (!text.trim()) return "sin datos (no rapeó)";
+	const segments = analyzeRhymes(text);
+	const groups = new Set<number>();
+	let rhymed = 0;
+	for (const seg of segments) {
+		if (seg.group !== null) {
+			groups.add(seg.group);
+			rhymed++;
+		}
+	}
+	const wordCount = text.split(/\s+/).filter(Boolean).length;
+	return `${wordCount} palabras, ${groups.size} familias de rima detectadas, ${rhymed} segmentos rimados`;
+}
+
 function userPrompt(state: BattleState): string {
 	const mod = getModality(state.modality);
 	const versesOf = (role: Role) =>
@@ -229,17 +254,26 @@ function userPrompt(state: BattleState): string {
 			? state.verses[role].map((v, i) => `  Ronda ${i + 1}: ${v || "(no rapeó)"}`).join("\n")
 			: "  (sin versos)";
 
-	return [
+	const lines = [
 		`Modalidad: ${mod.name} — ${mod.description}`,
 		`Palabras/conceptos obligatorios: ${state.words.length ? state.words.join(", ") : "ninguna"}`,
-		`Estructura: ${state.totalRounds} ronda(s) por jugador.`,
+		`Estructura: ${state.totalRounds} ronda(s) por jugador, ${mod.turnDurationSec}s por turno.`,
+		state.beat ? `Beat: ${state.beat.name}${state.beat.bpm ? ` a ${state.beat.bpm} BPM` : ""} (ambos rapearon sobre la misma pista).` : "Sin beat.",
+	];
+	if (state.replicaCount > 0) {
+		lines.push(`ATENCIÓN: es la réplica n°${state.replicaCount} tras empate; evitá otro empate salvo paridad total.`);
+	}
+	lines.push(
 		"",
 		`Jugador p1 = ${state.players.p1.name}:`,
 		versesOf("p1"),
+		`  [análisis fonético objetivo: ${rhymeStats(state.verses.p1)}]`,
 		"",
 		`Jugador p2 = ${state.players.p2.name}:`,
 		versesOf("p2"),
-	].join("\n");
+		`  [análisis fonético objetivo: ${rhymeStats(state.verses.p2)}]`,
+	);
+	return lines.join("\n");
 }
 
 /**

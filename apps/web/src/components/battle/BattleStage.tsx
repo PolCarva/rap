@@ -115,7 +115,8 @@ export function BattleStage({
 		recError === "not-allowed" ||
 		recError === "insecure" ||
 		recError === "unsupported";
-	const liveText = `${transcript} ${interim}`.trim() || (micBlocked ? draft : "");
+	// Caption en vivo: borrador (texto preservado/tipeado) + voz transcripta.
+	const liveText = [draft.trim(), transcript, interim].filter(Boolean).join(" ").trim();
 	const turnKey = `${battle.battleId}:${battle.replicaCount}:${battle.round}:${battle.activeRole ?? "none"}`;
 
 	useEffect(() => {
@@ -136,6 +137,19 @@ export function BattleStage({
 		setDraft("");
 		if (recSupported && recSecure) activateMic();
 	}, [isMyTurn, turnKey, recSupported, recSecure, activateMic]);
+
+	// Deepgram se cayó a mitad de MI turno: preservar lo ya transcripto en el
+	// borrador y arrancar el grabador de respaldo sin perder el turno.
+	const fallbackHandled = useRef<string | null>(null);
+	useEffect(() => {
+		if (!useChunkFallback || !isMyTurn) return;
+		if (fallbackHandled.current === turnKey) return;
+		fallbackHandled.current = turnKey;
+		if (dgTranscript) setDraft((d) => [d.trim(), dgTranscript].filter(Boolean).join(" "));
+		if (chunkSupported && chunkSecure && !chunkListening) {
+			chunkStart((full) => onCaption(full));
+		}
+	}, [useChunkFallback, isMyTurn, turnKey, dgTranscript, chunkSupported, chunkSecure, chunkListening, chunkStart, onCaption]);
 
 	const submit = useCallback(() => {
 		if (submittedTurn.current === turnKey) return;

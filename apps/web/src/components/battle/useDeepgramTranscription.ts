@@ -39,8 +39,11 @@ export function useDeepgramTranscription() {
 	const streamRef = useRef<MediaStream | null>(null);
 	const finalRef = useRef("");
 	const onUpdateRef = useRef<((full: string) => void) | null>(null);
+	/** true mientras el cierre del WS es intencional (stop/cleanup). */
+	const closingRef = useRef(false);
 
 	const cleanup = useCallback(() => {
+		closingRef.current = true;
 		try {
 			wsRef.current?.close();
 		} catch {
@@ -81,11 +84,19 @@ export function useDeepgramTranscription() {
 			ctxRef.current = ctx;
 			await ctx.resume().catch(() => {});
 
+			closingRef.current = false;
 			const ws = new WebSocket(transcribeUrl());
 			ws.binaryType = "arraybuffer";
 			wsRef.current = ws;
 
 			ws.addEventListener("error", () => setError("connection"));
+			ws.addEventListener("close", () => {
+				// Cierre inesperado en plena escucha: avisar para activar el respaldo.
+				if (!closingRef.current && wsRef.current === ws) {
+					setError("connection");
+					setListening(false);
+				}
+			});
 			ws.addEventListener("message", (ev) => {
 				let msg: DeepgramMessage;
 				try {
