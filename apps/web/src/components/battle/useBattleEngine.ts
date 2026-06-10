@@ -93,6 +93,9 @@ export function useBattleEngine() {
 		roomRef.current = null;
 	}, []);
 
+	/** Self-ref para que el reintento del close handler use siempre la versión vigente. */
+	const joinBattleRef = useRef<(battleId: string, role: Role, session: RapSession) => void>(() => {});
+
 	/** Conecta a la sala de batalla (primer ingreso o reconexión). */
 	const joinBattle = useCallback((battleId: string, role: Role, session: RapSession) => {
 		leftRef.current = false;
@@ -158,7 +161,7 @@ export function useBattleEngine() {
 			const delay = Math.min(4000, 600 * reconnectAttemptsRef.current);
 			setState((s) => ({ ...s, reconnecting: true }));
 			reconnectTimerRef.current = setTimeout(() => {
-				if (!leftRef.current) joinBattle(battleId, role, session);
+				if (!leftRef.current) joinBattleRef.current(battleId, role, session);
 			}, delay);
 		});
 
@@ -166,6 +169,10 @@ export function useBattleEngine() {
 			// el handler de close decide el reintento
 		});
 	}, []);
+
+	useEffect(() => {
+		joinBattleRef.current = joinBattle;
+	}, [joinBattle]);
 
 	/** Retoma una batalla activa después de un refresh. */
 	const resume = useCallback((): boolean => {

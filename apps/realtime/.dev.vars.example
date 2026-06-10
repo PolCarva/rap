@@ -5,3 +5,6 @@ DEEPGRAM_API_KEY=
 OPENROUTER_API_KEY=
 # Opcional. Default: openai/gpt-4o
 OPENROUTER_JUDGE_MODEL=openai/gpt-4o
+# MISMO valor que JWT_SECRET en apps/web/.dev.vars: verifica los tokens de
+# identidad del modo rankeado. Sin esto, las batallas con cuenta no mueven ELO.
+JWT_SECRET=cambia-esto-en-produccion
