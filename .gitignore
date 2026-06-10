@@ -46,3 +46,6 @@ next-env.d.ts
 
 # Claude Code local settings (personales, no se versionan)
 .claude/settings.local.json
+
+# Estado local compartido de wrangler (D1/DO de dev)
+.wrangler-shared/
