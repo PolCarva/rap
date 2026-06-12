@@ -170,7 +170,7 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 									<div className="mode-card-desc">{m.description}</div>
 									<div className="mode-card-meta">
 										<span>
-											{m.rounds} x {m.turnDurationSec}s
+											{m.turnBars ? `${m.rounds} x ${m.turnBars} compases` : `${m.rounds} x ~${m.turnDurationSec}s`}
 										</span>
 										<span className="mode-card-diff">{DIFF_LABELS[id] ?? "MODO"}</span>
 									</div>

@@ -11,7 +11,7 @@ import type { Env } from "./env";
  *   2) luego: audio binario (Int16 PCM mono)
  * Protocolo worker -> browser: los JSON de Deepgram, más {"type":"Error",...}.
  */
-function deepgramUrl(sampleRate: number): string {
+function deepgramUrl(sampleRate: number, keywords: string[]): string {
 	const params = new URLSearchParams({
 		model: "nova-2",
 		language: "es",
@@ -21,11 +21,27 @@ function deepgramUrl(sampleRate: number): string {
 		sample_rate: String(sampleRate),
 		channels: "1",
 	});
+	// Boost de las palabras obligatorias de la batalla: justo las que más
+	// importa transcribir bien (el juez las puntúa).
+	for (const kw of keywords) {
+		params.append("keywords", `${kw}:2`);
+	}
 	return `https://api.deepgram.com/v1/listen?${params.toString()}`;
 }
 
-async function openDeepgram(env: Env, sampleRate: number, browser: WebSocket): Promise<WebSocket | null> {
-	const resp = await fetch(deepgramUrl(sampleRate), {
+/** Sanea keywords del cliente: solo letras (es), pocas y cortas. */
+function sanitizeKeywords(raw: unknown): string[] {
+	if (!Array.isArray(raw)) return [];
+	return raw
+		.filter((k): k is string => typeof k === "string")
+		.flatMap((k) => k.split(/\s+/))
+		.map((k) => k.toLowerCase().replace(/[^a-záéíóúüñ]/g, ""))
+		.filter((k) => k.length >= 3 && k.length <= 30)
+		.slice(0, 12);
+}
+
+async function openDeepgram(env: Env, sampleRate: number, keywords: string[], browser: WebSocket): Promise<WebSocket | null> {
+	const resp = await fetch(deepgramUrl(sampleRate, keywords), {
 		headers: {
 			Upgrade: "websocket",
 			Authorization: `Token ${env.DEEPGRAM_API_KEY}`,
@@ -90,15 +106,17 @@ export async function handleTranscribe(request: Request, env: Env): Promise<Resp
 			if (opening) return;
 			opening = true;
 			let sampleRate = 16000;
+			let keywords: string[] = [];
 			if (typeof e.data === "string") {
 				try {
-					const cfg = JSON.parse(e.data) as { type?: string; sampleRate?: number };
+					const cfg = JSON.parse(e.data) as { type?: string; sampleRate?: number; keywords?: unknown };
 					if (cfg.type === "config" && cfg.sampleRate) sampleRate = cfg.sampleRate;
+					if (cfg.type === "config") keywords = sanitizeKeywords(cfg.keywords);
 				} catch {
 					/* config inválida: usar default */
 				}
 			}
-			dg = await openDeepgram(env, sampleRate, server);
+			dg = await openDeepgram(env, sampleRate, keywords, server);
 			if (!dg) {
 				server.send(JSON.stringify({ type: "Error", message: "No se pudo conectar a Deepgram" }));
 				server.close();

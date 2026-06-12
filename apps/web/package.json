@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "node ../../scripts/lint-web.mjs",
     "typecheck": "tsc --noEmit",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "deploy": "NEXT_PUBLIC_REALTIME_URL=wss://rap-realtime.raparena.workers.dev opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts"

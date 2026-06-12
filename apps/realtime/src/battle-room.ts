@@ -1,9 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { recordBattleAbort, recordBattleResult, recordBattleStart, type PersistedIdentity } from "@rap/db";
 import {
+	countdownMs,
+	drawWords,
 	getModality,
 	roomClientMessageSchema,
 	roomInitSchema,
+	roundStarter,
+	turnDurationMs,
 	type BattleState,
 	type EloImpact,
 	type PlayerIdentity,
@@ -14,8 +18,13 @@ import {
 import type { Env } from "./env";
 import { judgeBattle } from "./judge";
 
-const COUNTDOWN_MS = 3000;
 const REPLICA_PAUSE_MS = 5200;
+/**
+ * Gracia tras el deadline del turno antes de registrar verso vacío: cubre la
+ * latencia de la transcripción final y de la red, para que el cierre del
+ * verso no se pierda por llegar unos cientos de ms tarde.
+ */
+const VERSE_GRACE_MS = 2500;
 /** Tiempo que se espera a un jugador desconectado antes de abortar la sala. */
 const DISCONNECT_GRACE_MS = 45_000;
 /** TTL del storage del DO una vez terminada la batalla. */
@@ -92,8 +101,8 @@ export class BattleRoom extends DurableObject<Env> {
 			activeRole: null,
 			deadline: null,
 			players: {
-				p1: { name: p1.name, sessionId: p1.sessionId, userId: p1.userId, isGuest: p1.isGuest, connected: false, ready: false },
-				p2: { name: p2.name, sessionId: p2.sessionId, userId: p2.userId, isGuest: p2.isGuest, connected: false, ready: false },
+				p1: { name: p1.name, sessionId: p1.sessionId, userId: p1.userId, isGuest: p1.isGuest, connected: false, ready: false, wantsRematch: false },
+				p2: { name: p2.name, sessionId: p2.sessionId, userId: p2.userId, isGuest: p2.isGuest, connected: false, ready: false, wantsRematch: false },
 			},
 			verses: { p1: [], p2: [] },
 			verdict: null,
@@ -162,7 +171,7 @@ export class BattleRoom extends DurableObject<Env> {
 				state.players[att.role].ready = true;
 				if (state.phase === "ready_check" && state.players.p1.ready && state.players.p2.ready) {
 					state.phase = "countdown";
-					state.deadline = Date.now() + COUNTDOWN_MS;
+					state.deadline = Date.now() + countdownMs(state.beat?.bpm);
 					await this.ctx.storage.setAlarm(state.deadline);
 				}
 				await this.setState(state);
@@ -200,6 +209,19 @@ export class BattleRoom extends DurableObject<Env> {
 				return this.advance(state);
 			}
 
+			case "rematch": {
+				const att = ws.deserializeAttachment() as RoomAttachment | null;
+				if (!att) return;
+				// Solo tras un veredicto firme (los empates van a réplica automática).
+				if (state.phase !== "result" || state.verdict?.winner === "draw") return;
+				state.players[att.role].wantsRematch = true;
+				if (state.players.p1.wantsRematch && state.players.p2.wantsRematch) {
+					return this.startRematch(state);
+				}
+				await this.setState(state);
+				return this.broadcast(state);
+			}
+
 			case "leave": {
 				// Si la batalla ya terminó, el veredicto queda intacto para el rival.
 				if (state.phase === "result" || state.phase === "aborted") return;
@@ -235,13 +257,23 @@ export class BattleRoom extends DurableObject<Env> {
 		}
 
 		if (state.phase === "countdown") {
-			return this.startTurn(state, 1, "p1");
+			return this.startTurn(state, 1, roundStarter(1, state.replicaCount));
 		}
 
 		if (state.phase === "turn" && state.activeRole) {
-			// Se acabó el tiempo: si no envió verso esta ronda, registrar uno vacío.
+			// Se acabó el tiempo. Si el verso aún no llegó, dar una gracia corta
+			// antes de darlo por vacío: la transcripción final suele llegar unos
+			// cientos de ms después del corte.
 			if (state.verses[state.activeRole].length < state.round) {
+				const graceKey = `${state.replicaCount}:${state.round}:${state.activeRole}`;
+				const pending = await this.ctx.storage.get<string>("turnGrace");
+				if (pending !== graceKey) {
+					await this.ctx.storage.put("turnGrace", graceKey);
+					await this.ctx.storage.setAlarm(Date.now() + VERSE_GRACE_MS);
+					return;
+				}
 				state.verses[state.activeRole].push("");
+				await this.setState(state);
 			}
 			return this.advance(state);
 		}
@@ -270,22 +302,26 @@ export class BattleRoom extends DurableObject<Env> {
 		state.phase = "turn";
 		state.round = round;
 		state.activeRole = role;
-		state.deadline = Date.now() + mod.turnDurationSec * 1000;
+		// Duración cuantizada a compases del beat: el corte cae en el 1.
+		state.deadline = Date.now() + turnDurationMs(mod, state.beat?.bpm);
 		await this.setState(state);
 		await this.ctx.storage.setAlarm(state.deadline);
 		return this.broadcast(state);
 	}
 
-	/** Pasa al siguiente turno (p1 → p2 → siguiente ronda) o a juicio. */
+	/** Pasa al siguiente turno (abre/cierra alternado por ronda) o a juicio. */
 	private async advance(state: BattleState): Promise<void> {
 		const role = state.activeRole;
 		const round = state.round;
+		await this.ctx.storage.delete("turnGrace");
 
-		if (role === "p1") {
-			return this.startTurn(state, round, "p2");
+		const starter = roundStarter(round, state.replicaCount);
+		const closer: Role = starter === "p1" ? "p2" : "p1";
+		if (role === starter) {
+			return this.startTurn(state, round, closer);
 		}
-		if (role === "p2" && round < state.totalRounds) {
-			return this.startTurn(state, round + 1, "p1");
+		if (role === closer && round < state.totalRounds) {
+			return this.startTurn(state, round + 1, roundStarter(round + 1, state.replicaCount));
 		}
 
 		// Terminaron todas las rondas → juicio.
@@ -316,15 +352,44 @@ export class BattleRoom extends DurableObject<Env> {
 	}
 
 	private async startReplica(state: BattleState): Promise<void> {
+		const mod = getModality(state.modality);
 		state.replicaCount += 1;
 		state.phase = "countdown";
 		state.round = 0;
 		state.activeRole = null;
-		state.deadline = Date.now() + COUNTDOWN_MS;
+		state.deadline = Date.now() + countdownMs(state.beat?.bpm);
 		state.verses = { p1: [], p2: [] };
 		state.verdict = null;
+		// Palabras nuevas en la réplica: nadie llega con rimas preparadas.
+		if (mod.injectsWords) {
+			state.words = drawWords(mod.wordCount, state.modality === "deconceptos" ? "concepts" : "words");
+		}
 		await this.setState(state);
 		await this.ctx.storage.setAlarm(state.deadline);
+		return this.broadcast(state);
+	}
+
+	/** Ambos pidieron revancha: misma sala y rival, batalla nueva desde cero. */
+	private async startRematch(state: BattleState): Promise<void> {
+		const mod = getModality(state.modality);
+		state.battleId = crypto.randomUUID();
+		state.words = mod.injectsWords
+			? drawWords(mod.wordCount, state.modality === "deconceptos" ? "concepts" : "words")
+			: [];
+		state.phase = "ready_check";
+		state.round = 0;
+		state.activeRole = null;
+		state.deadline = null;
+		state.verses = { p1: [], p2: [] };
+		state.verdict = null;
+		state.replicaCount = 0;
+		for (const role of ["p1", "p2"] as const) {
+			state.players[role].ready = false;
+			state.players[role].wantsRematch = false;
+		}
+		await this.ctx.storage.deleteAlarm();
+		await this.setState(state);
+		await this.persistStart(state);
 		return this.broadcast(state);
 	}
 

@@ -101,7 +101,7 @@ export function HeroScene() {
 		base.position.y = -1.85;
 		mic.add(base);
 
-		mic.position.y = 0.45;
+		mic.position.y = 0.50;
 		mic.rotation.z = 0.22;
 		mic.scale.setScalar(0.92);
 		scene.add(mic);

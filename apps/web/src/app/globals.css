@@ -1276,6 +1276,57 @@ body {
 	padding: 8px 28px;
 }
 
+/* Cada palabra obligatoria: se tacha al usarla (feedback en vivo al MC). */
+.prompt-word .pw {
+	transition: color 0.3s ease, opacity 0.3s ease;
+}
+
+.prompt-word .pw.used {
+	color: var(--bone-dim);
+	opacity: 0.55;
+	text-decoration: line-through;
+	text-decoration-color: var(--red);
+	text-decoration-thickness: 3px;
+}
+
+.prompt-word .pw-sep {
+	color: var(--bone-dim);
+	opacity: 0.5;
+	margin: 0 0.35em;
+}
+
+/* Quién abre, debajo del número de la cuenta atrás. Late al tempo del beat
+   (hereda --beat-period de .battle-arena). */
+.battle-countdown-starter {
+	font-family: var(--font-mono);
+	font-size: 12px;
+	letter-spacing: 0.34em;
+	text-transform: uppercase;
+	color: var(--bone);
+	margin-top: 10px;
+	text-align: center;
+	animation: countdown-beat var(--beat-period, 0.66s) ease-out infinite;
+}
+
+@keyframes countdown-beat {
+	0% {
+		transform: scale(1.12);
+		opacity: 1;
+	}
+	35% {
+		transform: scale(1);
+		opacity: 0.82;
+	}
+	100% {
+		transform: scale(1);
+		opacity: 0.82;
+	}
+}
+
+.battle-countdown-starter .red {
+	color: var(--red);
+}
+
 /* Phase overlays (por encima del nav del sitio, z 120) */
 .battle-phase {
 	position: fixed;
@@ -1512,6 +1563,7 @@ body {
 	inset: 0;
 	z-index: 30;
 	display: flex;
+	flex-direction: column;
 	align-items: center;
 	justify-content: center;
 	background: rgba(0, 0, 0, 0.7);

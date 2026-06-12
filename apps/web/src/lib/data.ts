@@ -15,9 +15,10 @@ import {
 	type RankingRow,
 } from "@rap/db";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { REALTIME_HTTP_URL } from "@/lib/realtime";
+import { headers } from "next/headers";
+import { getRealtimeHttpUrl, inferWsFromHostname } from "@/lib/realtime";
 
-type EnvWithDb = CloudflareEnv & { DB?: D1Database };
+type EnvWithDb = CloudflareEnv & { DB?: D1Database; REALTIME_WS_URL?: string };
 
 function getDb(): D1Database | null {
 	try {
@@ -28,9 +29,32 @@ function getDb(): D1Database | null {
 	}
 }
 
+async function serverRealtimeHttpUrl(): Promise<string> {
+	try {
+		const { env } = getCloudflareContext();
+		const ws = (env as EnvWithDb).REALTIME_WS_URL;
+		if (ws) return ws.replace(/^ws(s?):/, "http$1:");
+	} catch {
+		// next dev sin bindings
+	}
+
+	try {
+		const host = (await headers()).get("host")?.split(":")[0];
+		if (host) {
+			const inferred = inferWsFromHostname(host);
+			if (inferred) return inferred.replace(/^ws(s?):/, "http$1:");
+		}
+	} catch {
+		// fuera de request context
+	}
+
+	return getRealtimeHttpUrl();
+}
+
 async function realtimeJson<T>(path: string): Promise<T | null> {
 	try {
-		const res = await fetch(`${REALTIME_HTTP_URL}${path}`, { cache: "no-store" });
+		const base = await serverRealtimeHttpUrl();
+		const res = await fetch(`${base}${path}`, { cache: "no-store" });
 		if (!res.ok) return null;
 		return (await res.json()) as T;
 	} catch {

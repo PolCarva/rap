@@ -179,7 +179,7 @@ export default function Home() {
 									<span className="cine-mode-name">{m.name}</span>
 									<span className="cine-mode-desc">{m.description}</span>
 									<span className="cine-mode-meta">
-										{m.rounds} × {m.turnDurationSec}S · {DIFF[id]}
+										{m.turnBars ? `${m.rounds} × ${m.turnBars} COMPASES` : `${m.rounds} × ~${m.turnDurationSec}S`} · {DIFF[id]}
 									</span>
 									<span className="cine-mode-arrow">→</span>
 								</TransitionLink>

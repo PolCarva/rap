@@ -25,4 +25,10 @@ for (const modality of MODALITIES) {
 console.log("\n=== verso vacío: p2 ===");
 await runSmoke({ MODALITY: "minuto-libre", EMPTY: "p2" });
 
+console.log("\n=== revancha ===");
+await new Promise((resolve, reject) => {
+	const child = spawn("node", ["scripts/smoke-rematch.mjs"], { stdio: "inherit" });
+	child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error("smoke-rematch failed"))));
+});
+
 console.log("\n✅ smoke-suite completa");
