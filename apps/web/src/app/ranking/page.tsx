@@ -4,62 +4,90 @@ import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+const PODIUM_TAGS = ["CAMPEÓN", "RETADOR", "AMENAZA"] as const;
+
 export default async function RankingPage() {
 	const ranking = await getRanking(50);
+	const podium = ranking.slice(0, 3);
+	const rest = ranking.slice(3);
 
 	return (
 		<main className="app-page-shell">
 			<AppNav status="RANKING GLOBAL" />
-			<div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-				<h1 className="page-title">Ranking</h1>
-				<section className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.03]">
-					{ranking.length === 0 ? (
-						<EmptyState text="Todavía no hay batallas rankeadas. Jugá una arena para inaugurar la tabla." />
-					) : (
-						<table className="w-full text-left text-sm">
-							<thead className="bg-white/[0.06] text-xs uppercase text-white/45">
-								<tr>
-									<th className="px-4 py-3">#</th>
-									<th className="px-4 py-3">MC</th>
-									<th className="px-4 py-3 text-right">ELO</th>
-									<th className="px-4 py-3 text-right">W-E-D</th>
-									<th className="px-4 py-3 text-right">Win%</th>
-									<th className="px-4 py-3 text-right">Racha</th>
-								</tr>
-							</thead>
-							<tbody>
-								{ranking.map((mc, index) => {
+			<div className="rk-shell">
+				<header className="rk-head">
+					<p className="rk-kicker">LA TABLA NO MIENTE</p>
+					<h1 className="rk-title">
+						RANK<em>ING</em>
+					</h1>
+				</header>
+
+				{ranking.length === 0 ? (
+					<section className="rk-empty">
+						<p>TODAVÍA NO HAY BATALLAS RANKEADAS</p>
+						<Link href="/arena" className="btn-arena" style={{ padding: "14px 36px", fontSize: 18 }}>
+							<span>INAUGURÁ LA TABLA →</span>
+						</Link>
+					</section>
+				) : (
+					<>
+						{/* Podio top 3 */}
+						<section className="rk-podium">
+							{podium.map((mc, index) => {
+								const wr = mc.battles > 0 ? Math.round((mc.wins / mc.battles) * 100) : 0;
+								return (
+									<Link
+										key={mc.id}
+										href={`/perfil/${encodeURIComponent(mc.id)}`}
+										className={`rk-podium-card pos-${index + 1}`}
+									>
+										<span className="rk-podium-rank">{String(index + 1).padStart(2, "0")}</span>
+										<span className="rk-podium-tag">{PODIUM_TAGS[index]}</span>
+										<span className="rk-podium-handle">{mc.handle.toUpperCase()}</span>
+										<span className="rk-podium-elo">
+											{mc.elo}
+											<small>ELO</small>
+										</span>
+										<span className="rk-podium-meta">
+											{mc.wins}V · {mc.losses}D · {wr}% WIN
+											{mc.currentStreak > 1 ? ` · 🔥${mc.currentStreak}` : ""}
+										</span>
+									</Link>
+								);
+							})}
+						</section>
+
+						{/* Tabla del resto */}
+						{rest.length > 0 && (
+							<section className="rk-table">
+								<div className="rk-row rk-row-head">
+									<span>#</span>
+									<span>MC</span>
+									<span className="num">ELO</span>
+									<span className="num">V-E-D</span>
+									<span className="num">WIN%</span>
+									<span className="num">RACHA</span>
+								</div>
+								{rest.map((mc, index) => {
 									const wr = mc.battles > 0 ? Math.round((mc.wins / mc.battles) * 100) : 0;
 									return (
-										<tr key={mc.id} className="border-t border-white/8">
-											<td className="px-4 py-3 text-white/35">{index + 1}</td>
-											<td className="px-4 py-3 font-bold">
-												<Link className="hover:text-fuchsia-300" href={`/perfil/${encodeURIComponent(mc.id)}`}>
-													{mc.handle}
-												</Link>
-											</td>
-											<td className="px-4 py-3 text-right font-mono text-cyan-200">{mc.elo}</td>
-											<td className="px-4 py-3 text-right text-white/55 font-mono">
+										<Link key={mc.id} href={`/perfil/${encodeURIComponent(mc.id)}`} className="rk-row">
+											<span className="rk-pos">{String(index + 4).padStart(2, "0")}</span>
+											<span className="rk-handle">{mc.handle.toUpperCase()}</span>
+											<span className="num rk-elo">{mc.elo}</span>
+											<span className="num rk-record">
 												{mc.wins}-{mc.draws}-{mc.losses}
-											</td>
-											<td className={`px-4 py-3 text-right font-mono ${wr >= 50 ? "text-green-400" : "text-red-400/70"}`}>
-												{wr}%
-											</td>
-											<td className="px-4 py-3 text-right font-mono text-yellow-300/80">
-												{mc.currentStreak > 0 ? `🔥 ${mc.currentStreak}` : mc.currentStreak === 0 && mc.bestStreak > 0 ? `—` : "—"}
-											</td>
-										</tr>
+											</span>
+											<span className={`num ${wr >= 50 ? "rk-up" : "rk-down"}`}>{wr}%</span>
+											<span className="num rk-streak">{mc.currentStreak > 1 ? `🔥 ${mc.currentStreak}` : "—"}</span>
+										</Link>
 									);
 								})}
-							</tbody>
-						</table>
-					)}
-				</section>
+							</section>
+						)}
+					</>
+				)}
 			</div>
 		</main>
 	);
-}
-
-function EmptyState({ text }: { text: string }) {
-	return <p className="px-5 py-10 text-center text-sm text-white/45">{text}</p>;
 }

@@ -259,7 +259,12 @@ export function BattleStage({
 	return (
 		<>
 			{/* ===== BATTLE ARENA ===== */}
-			<div className="battle-arena">
+			<div
+				className={`battle-arena${beatIsActive ? " grooving" : ""}`}
+				style={{ "--beat-period": `${(60 / (battle.beat?.bpm ?? 90)).toFixed(3)}s` } as React.CSSProperties}
+			>
+				{/* Flash al cambiar de turno */}
+				{battle.phase === "turn" && <div key={turnKey} className="turn-flash" />}
 				{/* Me */}
 				<PlayerPanel
 					player={me}
@@ -334,10 +339,10 @@ export function BattleStage({
 					</div>
 				)}
 
-				{/* Countdown overlay */}
+				{/* Countdown overlay: cada tick entra con un punch */}
 				{battle.phase === "countdown" && (
 					<div className="battle-countdown">
-						<div className="battle-countdown-num">
+						<div key={remaining ?? "ya"} className="battle-countdown-num punch">
 							{remaining !== null && remaining > 0 ? remaining : "¡YA!"}
 						</div>
 					</div>
