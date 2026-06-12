@@ -136,7 +136,7 @@ export class MatchmakingRoom extends DurableObject<Env> {
 		}
 
 		// Buscar un rival en espera de la misma modalidad. Nunca emparejar a un
-		// jugador consigo mismo (misma sesión en dos pestañas).
+		// jugador consigo mismo: ni misma sesión (dos pestañas) ni misma cuenta.
 		const peer = this.ctx.getWebSockets().find((other) => {
 			if (other === ws) return false;
 			const att = other.deserializeAttachment() as MmAttachment | null;
@@ -144,6 +144,7 @@ export class MatchmakingRoom extends DurableObject<Env> {
 				att?.status === "waiting" &&
 				att.modality === modality &&
 				att.sessionId !== identity.sessionId &&
+				(!att.userId || att.userId !== identity.userId) &&
 				beatsCompatible(att.beatId, beatId)
 			);
 		});

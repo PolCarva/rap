@@ -9,9 +9,14 @@ import {
 	type RtcSignal,
 	type Role,
 } from "@rap/shared";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CrowdReactions } from "@/components/CrowdReactions";
 import { PlayerPanel } from "./PlayerPanel";
+
+const JudgesScene = dynamic(() => import("@/components/three/JudgesScene").then((m) => m.JudgesScene), {
+	ssr: false,
+});
 import { useBeatPlayer } from "./useBeatPlayer";
 import { useChunkedTranscription } from "./useChunkedTranscription";
 import { useDeepgramTranscription } from "./useDeepgramTranscription";
@@ -471,15 +476,21 @@ function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole
 				{stage === "suspense" ? "EL JURADO DELIBERA" : voteLine}
 			</div>
 
-			<div className={`judge-row stage-${stage}`}>
-				{v.judges.map((judge, index) => (
-					<JudgeCard
-						key={judge.judge}
-						vote={judge.vote}
-						names={{ p1: battle.players.p1.name, p2: battle.players.p2.name }}
-						delay={index * 220}
-					/>
-				))}
+			<div className={`judge-zone stage-${stage}`}>
+				<JudgesScene votes={v.judges} stage={stage} />
+				<div className="judge-vote-labels">
+					{v.judges.map((judge) => {
+						const label =
+							judge.vote === "replica"
+								? "RÉPLICA"
+								: (battle.players[judge.vote].name || judge.vote).toUpperCase();
+						return (
+							<span key={judge.judge} className={`judge-vote-label vote-${judge.vote}${stage !== "suspense" ? " shown" : ""}`}>
+								{stage === "suspense" ? "…" : label}
+							</span>
+						);
+					})}
+				</div>
 			</div>
 
 			<div className={`winner-name result-title stage-${stage}`} style={{ color: draw || youWon ? "var(--red)" : "var(--bone-dim)" }}>
@@ -510,13 +521,16 @@ function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole
 			))}
 
 			{stage === "final" && !draw && (
-				<div className={`elo-impact${v.elo?.ranked ? " ranked" : ""}`}>
-					{v.elo?.ranked && myElo ? (
+				v.elo?.ranked && myElo && myElo.before !== null && myElo.after !== null ? (
+					<div className={`elo-stage ${myElo.delta >= 0 ? "up" : "down"}`}>
+						<span className="elo-stage-label">TU ELO</span>
 						<AnimatedElo before={myElo.before} after={myElo.after} delta={myElo.delta} />
-					) : (
-						<span>{v.elo?.reason ?? "ELO no disponible"}</span>
-					)}
-				</div>
+					</div>
+				) : (
+					<div className="elo-impact">
+						<span>{v.elo?.reason ?? "Batalla no rankeada: entrá con tu cuenta para mover ELO"}</span>
+					</div>
+				)
 			)}
 
 			{stage === "final" && draw && <div className="replica-note">LA SALA ARRANCA DE NUEVO</div>}
@@ -540,54 +554,40 @@ function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole
 	);
 }
 
-function JudgeCard({
-	vote,
-	names,
-	delay,
-}: {
-	vote: Role | "replica";
-	names: { p1: string; p2: string };
-	delay: number;
-}) {
-	const label = vote === "replica" ? "RÉPLICA" : (names[vote] || vote).toUpperCase();
-	return (
-		<div className={`judge-card vote-${vote}`} style={{ animationDelay: `${delay}ms` }}>
-			<div className="judge-body">
-				<span className="judge-head" />
-				<span className="judge-arm left" />
-				<span className="judge-arm right" />
-			</div>
-			<div className="judge-label">{label}</div>
-		</div>
-	);
-}
+function AnimatedElo({ before, after, delta }: { before: number; after: number; delta: number }) {
+	const [value, setValue] = useState(before);
+	const [done, setDone] = useState(false);
 
-function AnimatedElo({ before, after, delta }: { before: number | null; after: number | null; delta: number }) {
-	const [value, setValue] = useState(before ?? after ?? 0);
-
+	// Conteo con ease-out + ligera demora dramática antes de arrancar.
 	useEffect(() => {
-		if (before === null || after === null) return;
-		const steps = 18;
-		let current = 0;
-		const id = setInterval(() => {
-			current += 1;
-			const t = current / steps;
-			setValue(Math.round(before + (after - before) * t));
-			if (current >= steps) clearInterval(id);
-		}, 38);
-		return () => clearInterval(id);
+		const DELAY = 600;
+		const DURATION = 1700;
+		let raf = 0;
+		const t0 = performance.now();
+		const tick = (now: number) => {
+			const elapsed = now - t0 - DELAY;
+			if (elapsed < 0) {
+				raf = requestAnimationFrame(tick);
+				return;
+			}
+			const p = Math.min(1, elapsed / DURATION);
+			const eased = 1 - Math.pow(1 - p, 3);
+			setValue(Math.round(before + (after - before) * eased));
+			if (p < 1) raf = requestAnimationFrame(tick);
+			else setDone(true);
+		};
+		raf = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(raf);
 	}, [before, after]);
 
-	if (before === null || after === null) return null;
 	return (
-		<>
-			<span className="elo-before">{before}</span>
-			<span className={`elo-delta${delta >= 0 ? " plus" : " minus"}`}>
-				{delta >= 0 ? "+" : ""}
+		<div className="elo-counter">
+			<span className={`elo-big${done ? " done" : ""}`}>{value}</span>
+			<span className={`elo-delta-badge${delta >= 0 ? " plus" : " minus"}`}>
+				{delta >= 0 ? "▲ +" : "▼ "}
 				{delta}
 			</span>
-			<span className="elo-after">{value}</span>
-		</>
+		</div>
 	);
 }
 
@@ -604,33 +604,31 @@ function PlayerScore({
 }) {
 	return (
 		<div>
-			<div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
-				<span style={{ fontFamily: "var(--font-display)", fontSize: 20, textTransform: "uppercase", color: highlight ? "var(--red)" : "var(--bone)" }}>{name}</span>
-				<span style={{ fontFamily: "var(--font-display)", fontSize: 36, color: highlight ? "var(--red)" : "var(--bone)" }}>{total}</span>
+			<div className={`crit-head${highlight ? " hl" : ""}`}>
+				<span className="crit-name">{name}</span>
+				<span className="crit-total">{total}</span>
 			</div>
-			<div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-				{CRITERIA.map((c) => {
+			<div className="crit-list">
+				{CRITERIA.map((c, index) => {
 					const val = pv.criteria[c];
 					return (
-						<div key={c} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-							<span style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--bone-dim)", width: 56, flexShrink: 0 }}>{CRITERIA_LABELS[c]}</span>
+						<div key={c} className="crit-row">
+							<span className="crit-label">{CRITERIA_LABELS[c]}</span>
 							{val === null ? (
-								<span style={{ color: "var(--line)" }}>—</span>
+								<span className="crit-na">—</span>
 							) : (
 								<>
-									<div style={{ flex: 1, height: 4, background: "var(--ink-3)", border: "1px solid var(--line)", overflow: "hidden" }}>
-										<div style={{ height: "100%", background: "var(--red)", width: `${val * 10}%`, boxShadow: "0 0 6px rgba(232,25,44,0.5)" }} />
+									<div className="crit-bar">
+										<span style={{ width: `${val * 10}%`, animationDelay: `${300 + index * 110}ms` }} />
 									</div>
-									<span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--bone-dim)", width: 20, textAlign: "right" }}>{val}</span>
+									<span className="crit-val">{val}</span>
 								</>
 							)}
 						</div>
 					);
 				})}
 			</div>
-			{pv.comment && (
-				<p style={{ marginTop: 10, fontFamily: "var(--font-body)", fontSize: 12, fontStyle: "italic", color: "var(--bone-dim)", lineHeight: 1.4 }}>{pv.comment}</p>
-			)}
+			{pv.comment && <p className="crit-comment">{pv.comment}</p>}
 		</div>
 	);
 }

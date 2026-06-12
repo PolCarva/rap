@@ -2661,6 +2661,231 @@ a.rk-row:hover {
 	}
 }
 
+/* ---- Veredicto: jurados 3D, criterios y ELO ---- */
+.judge-zone {
+	width: min(680px, 94vw);
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+}
+
+.judges-scene {
+	width: 100%;
+	height: clamp(180px, 26vh, 250px);
+}
+
+.judges-scene canvas {
+	width: 100% !important;
+	height: 100% !important;
+	display: block;
+}
+
+.judge-vote-labels {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 8px;
+	margin-top: -6px;
+}
+
+.judge-vote-label {
+	text-align: center;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+	opacity: 0.4;
+	transition: opacity 0.4s, color 0.4s;
+}
+
+.judge-vote-label.shown {
+	opacity: 1;
+	color: var(--bone);
+}
+
+.judge-vote-label.shown.vote-replica {
+	color: #fbbf24;
+}
+
+/* Criterios del juez (sin superposición: grid de 3 columnas) */
+.crit-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+
+.crit-name {
+	font-family: var(--font-display);
+	font-size: 20px;
+	text-transform: uppercase;
+	color: var(--bone);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.crit-total {
+	font-family: var(--font-display);
+	font-size: 36px;
+	color: var(--bone);
+	flex-shrink: 0;
+}
+
+.crit-head.hl .crit-name,
+.crit-head.hl .crit-total {
+	color: var(--red);
+}
+
+.crit-list {
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
+}
+
+.crit-row {
+	display: grid;
+	grid-template-columns: 88px 1fr 24px;
+	align-items: center;
+	gap: 10px;
+}
+
+.crit-label {
+	font-family: var(--font-mono);
+	font-size: 8.5px;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.crit-bar {
+	height: 5px;
+	background: var(--ink-3);
+	border: 1px solid var(--line);
+	overflow: hidden;
+}
+
+.crit-bar > span {
+	display: block;
+	height: 100%;
+	background: var(--red);
+	box-shadow: 0 0 6px rgba(232, 25, 44, 0.5);
+	transform-origin: left;
+	animation: critGrow 0.8s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+@keyframes critGrow {
+	from { transform: scaleX(0); }
+	to { transform: scaleX(1); }
+}
+
+.crit-val {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--bone-dim);
+	text-align: right;
+}
+
+.crit-na {
+	grid-column: 2 / 4;
+	color: var(--line);
+}
+
+.crit-comment {
+	margin-top: 10px;
+	font-family: var(--font-body);
+	font-size: 12px;
+	font-style: italic;
+	color: var(--bone-dim);
+	line-height: 1.4;
+}
+
+/* ELO protagonista */
+.elo-stage {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+	padding: 16px 42px 18px;
+	border: 1px solid var(--line);
+	background: rgba(5, 5, 8, 0.6);
+	animation: eloIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+@keyframes eloIn {
+	from { opacity: 0; transform: translateY(16px) scale(0.94); }
+	to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.elo-stage.up {
+	border-color: rgba(125, 249, 203, 0.45);
+	box-shadow: 0 0 40px rgba(125, 249, 203, 0.08);
+}
+
+.elo-stage.down {
+	border-color: rgba(232, 25, 44, 0.5);
+	box-shadow: 0 0 40px rgba(232, 25, 44, 0.1);
+}
+
+.elo-stage-label {
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 0.34em;
+	color: var(--bone-dim);
+	text-transform: uppercase;
+}
+
+.elo-counter {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+.elo-big {
+	font-family: var(--font-display);
+	font-size: clamp(48px, 7vw, 76px);
+	line-height: 1;
+	color: var(--bone);
+	font-variant-numeric: tabular-nums;
+	transition: text-shadow 0.4s;
+}
+
+.elo-stage.up .elo-big.done {
+	color: #7df9cb;
+	text-shadow: 0 0 34px rgba(125, 249, 203, 0.5);
+}
+
+.elo-stage.down .elo-big.done {
+	color: var(--red);
+	text-shadow: 0 0 34px rgba(232, 25, 44, 0.55);
+}
+
+.elo-delta-badge {
+	font-family: var(--font-display);
+	font-size: 22px;
+	padding: 4px 12px;
+	animation: deltaPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.7s backwards;
+}
+
+@keyframes deltaPop {
+	from { opacity: 0; transform: scale(0.4) rotate(-6deg); }
+	to { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+.elo-delta-badge.plus {
+	color: #052015;
+	background: #7df9cb;
+}
+
+.elo-delta-badge.minus {
+	color: var(--bone);
+	background: var(--red);
+}
+
 /* ---- Historial (cartel) ---- */
 .hx-shell {
 	max-width: 920px;
