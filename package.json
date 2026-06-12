@@ -14,10 +14,12 @@
     "reset": "bash scripts/reset.sh",
     "build:web": "npm run build --workspace @rap/web",
     "smoke:battle": "node scripts/smoke-battle.mjs",
+    "smoke:rematch": "node scripts/smoke-rematch.mjs",
     "smoke:suite": "node scripts/smoke-suite.mjs",
     "test:rhyme": "node scripts/test-rhyme.mjs",
     "deploy:web": "npm run deploy --workspace @rap/web",
     "deploy:realtime": "npm run deploy --workspace @rap/realtime",
+    "deploy": "npm run deploy:web && npm run deploy:realtime",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present"
   },

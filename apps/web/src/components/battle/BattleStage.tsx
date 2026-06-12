@@ -4,13 +4,14 @@ import {
 	CRITERIA,
 	CRITERIA_LABELS,
 	MODALITIES,
+	roundStarter,
 	type BattleState,
 	type PlayerVerdict,
 	type RtcSignal,
 	type Role,
 } from "@rap/shared";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CrowdReactions } from "@/components/CrowdReactions";
 import { PlayerPanel } from "./PlayerPanel";
 
@@ -34,7 +35,10 @@ interface Props {
 	onCaption: (text: string) => void;
 	onSignal: (signal: RtcSignal) => void;
 	onSubmitVerse: (text: string) => void;
+	onRematch: () => void;
 	onLeave: () => void;
+	/** Re-encolar con la misma config (cuando el rival abandonó). */
+	onRequeue?: (() => void) | null;
 }
 
 function useRemaining(deadline: number | null): number | null {
@@ -48,6 +52,84 @@ function useRemaining(deadline: number | null): number | null {
 	return Math.max(0, Math.ceil((deadline - now) / 1000));
 }
 
+/** Minúsculas y sin tildes, para chequear palabras usadas en vivo. */
+function normalizeWords(s: string): string {
+	return s
+		.toLowerCase()
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "");
+}
+
+/**
+ * Tick sonoro de la cuenta atrás: un blip por segundo y un golpe más grave y
+ * largo en el "¡YA!". El AudioContext nace tras el gesto de "ESTOY LISTO",
+ * así que el autoplay no lo bloquea.
+ */
+function useCountdownSound(active: boolean, remaining: number | null) {
+	const ctxRef = useRef<AudioContext | null>(null);
+	const lastRef = useRef<number | null>(null);
+
+	useEffect(() => {
+		if (!active || remaining === null) {
+			lastRef.current = null;
+			return;
+		}
+		if (lastRef.current === remaining) return;
+		lastRef.current = remaining;
+		try {
+			const Ctor =
+				window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+			ctxRef.current = ctxRef.current ?? new Ctor();
+			const ctx = ctxRef.current;
+			if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+			const go = remaining <= 0;
+			const osc = ctx.createOscillator();
+			const gain = ctx.createGain();
+			osc.type = "triangle";
+			osc.frequency.value = go ? 220 : 660;
+			const dur = go ? 0.5 : 0.1;
+			gain.gain.setValueAtTime(go ? 0.3 : 0.16, ctx.currentTime);
+			gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+			osc.connect(gain);
+			gain.connect(ctx.destination);
+			osc.start();
+			osc.stop(ctx.currentTime + dur + 0.05);
+		} catch {
+			/* sin audio: la cuenta sigue siendo visual */
+		}
+	}, [active, remaining]);
+
+	useEffect(
+		() => () => {
+			ctxRef.current?.close().catch(() => {});
+			ctxRef.current = null;
+		},
+		[],
+	);
+}
+
+/**
+ * Botón de abandono en dos pasos: un mis-click en plena batalla no puede
+ * costar la derrota. El armado se desarma solo a los 3s.
+ */
+function ConfirmLeaveButton({ onLeave, style }: { onLeave: () => void; style?: React.CSSProperties }) {
+	const [armed, setArmed] = useState(false);
+	useEffect(() => {
+		if (!armed) return;
+		const t = setTimeout(() => setArmed(false), 3000);
+		return () => clearTimeout(t);
+	}, [armed]);
+	return (
+		<button
+			onClick={() => (armed ? onLeave() : setArmed(true))}
+			className="btn-ghost"
+			style={{ ...style, ...(armed ? { color: "var(--red)", borderColor: "var(--red)" } : undefined) }}
+		>
+			{armed ? "¿SEGURO? TOCÁ DE NUEVO" : "ABANDONAR"}
+		</button>
+	);
+}
+
 export function BattleStage({
 	battle,
 	myRole,
@@ -59,7 +141,9 @@ export function BattleStage({
 	onCaption,
 	onSignal,
 	onSubmitVerse,
+	onRematch,
 	onLeave,
+	onRequeue,
 }: Props) {
 	const oppRole: Role = myRole === "p1" ? "p2" : "p1";
 	const me = battle.players[myRole];
@@ -131,8 +215,8 @@ export function BattleStage({
 	}, [dgError]);
 
 	const activateMic = useCallback(() => {
-		recStart((full) => onCaption(full));
-	}, [recStart, onCaption]);
+		recStart((full) => onCaption(full), battle.words);
+	}, [recStart, onCaption, battle.words]);
 
 	useEffect(() => {
 		if (!isMyTurn) return;
@@ -166,8 +250,10 @@ export function BattleStage({
 		setDraft("");
 	}, [turnKey, recSupported, recStop, draft, onSubmitVerse]);
 
+	// Enviar recién cuando el reloj llega a 0 (no antes: el último segundo es
+	// tuyo). El server da unos segundos de gracia para el verso final.
 	useEffect(() => {
-		if (isMyTurn && remaining !== null && remaining <= 1 && submittedTurn.current !== turnKey) {
+		if (isMyTurn && remaining !== null && remaining <= 0 && submittedTurn.current !== turnKey) {
 			submit();
 		}
 	}, [isMyTurn, remaining, turnKey, submit]);
@@ -184,6 +270,25 @@ export function BattleStage({
 	};
 
 	const mod = MODALITIES[battle.modality];
+
+	// Quién abre (para anunciarlo en la cuenta atrás).
+	const firstUp = battle.players[roundStarter(1, battle.replicaCount)];
+	useCountdownSound(battle.phase === "countdown", remaining);
+
+	// Palabras ya usadas por el MC activo (sus versos + lo que va diciendo).
+	const activeRoleNow = battle.phase === "turn" ? battle.activeRole : null;
+	const activeRunningText = activeRoleNow
+		? [...battle.verses[activeRoleNow], activeRoleNow === myRole ? liveText : opponentCaption].join(" ")
+		: "";
+	const usedWords = useMemo(() => {
+		if (battle.words.length === 0) return [];
+		const text = normalizeWords(activeRunningText);
+		return battle.words.map((w) => {
+			const key = normalizeWords(w).split(/\s+/).pop()!;
+			return text.includes(key);
+		});
+	}, [battle.words, activeRunningText]);
+
 	const beatIsActive = Boolean(battle.beat?.audioUrl && (battle.phase === "countdown" || battle.phase === "turn"));
 	const beatPlayer = useBeatPlayer();
 	const { play: playBeatTrack, stop: stopBeatTrack } = beatPlayer;
@@ -198,7 +303,7 @@ export function BattleStage({
 
 	// Result phase
 	if (battle.phase === "result" && battle.verdict) {
-		return <ResultScreen battle={battle} myRole={myRole} onLeave={onLeave} />;
+		return <ResultScreen battle={battle} myRole={myRole} onRematch={onRematch} onLeave={onLeave} />;
 	}
 
 	// Aborted
@@ -211,7 +316,14 @@ export function BattleStage({
 				<p style={{ fontFamily: "var(--font-mono)", fontSize: 12, letterSpacing: "0.3em", color: "var(--bone-dim)", textTransform: "uppercase" }}>
 					EL RIVAL ABANDONÓ LA BATALLA
 				</p>
-				<button onClick={onLeave} className="btn-ghost">VOLVER AL INICIO</button>
+				<div style={{ display: "flex", gap: 18 }}>
+					{onRequeue && (
+						<button onClick={onRequeue} className="btn-arena" style={{ fontSize: 16, padding: "14px 30px" }}>
+							<span>BUSCAR OTRO RIVAL</span>
+						</button>
+					)}
+					<button onClick={onLeave} className="btn-ghost">VOLVER AL INICIO</button>
+				</div>
 			</div>
 		);
 	}
@@ -256,7 +368,7 @@ export function BattleStage({
 						</div>
 					</>
 				)}
-				<button onClick={onLeave} className="btn-ghost">ABANDONAR</button>
+				<ConfirmLeaveButton onLeave={onLeave} />
 			</div>
 		);
 	}
@@ -306,12 +418,17 @@ export function BattleStage({
 				<div className="turn-banner">
 					<div className="turn-who">
 						{battle.phase === "turn" ? (
-							<>
-								TURNO:{" "}
-								<span className="red">
-									{battle.activeRole === myRole ? me.name || "TÚ" : opp.name || "RIVAL"}
-								</span>
-							</>
+							remaining !== null && remaining <= 0 ? (
+								// Gracia del server: el verso final está viajando.
+								<>CERRANDO TURNO…</>
+							) : (
+								<>
+									TURNO:{" "}
+									<span className="red">
+										{battle.activeRole === myRole ? me.name || "TÚ" : opp.name || "RIVAL"}
+									</span>
+								</>
+							)
 						) : battle.phase === "countdown" ? (
 							"PREPARANDO…"
 						) : battle.phase === "judging" ? (
@@ -336,19 +453,32 @@ export function BattleStage({
 					)}
 				</div>
 
-				{/* Prompt words */}
+				{/* Prompt words: se tachan en vivo al usarlas */}
 				{battle.words.length > 0 && (
 					<div className="prompt-zone">
-						<div className="prompt-label">PALABRAS OBLIGATORIAS</div>
-						<div className="prompt-word">{battle.words.join(" · ")}</div>
+						<div className="prompt-label">
+							{battle.modality === "deconceptos" ? "CONCEPTOS A DESARROLLAR" : "PALABRAS OBLIGATORIAS"}
+						</div>
+						<div className="prompt-word">
+							{battle.words.map((w, i) => (
+								<span key={w}>
+									{i > 0 && <span className="pw-sep">·</span>}
+									<span className={`pw${usedWords[i] ? " used" : ""}`}>{w}</span>
+								</span>
+							))}
+						</div>
 					</div>
 				)}
 
-				{/* Countdown overlay: cada tick entra con un punch */}
+				{/* Countdown overlay: cada tick entra con un punch y anuncia quién abre */}
 				{battle.phase === "countdown" && (
 					<div className="battle-countdown">
 						<div key={remaining ?? "ya"} className="battle-countdown-num punch">
 							{remaining !== null && remaining > 0 ? remaining : "¡YA!"}
+						</div>
+						<div className="battle-countdown-starter">
+							ABRE <span className="red">{(firstUp.name || "MC").toUpperCase()}</span>
+							{battle.replicaCount > 0 ? " · RÉPLICA" : ""}
 						</div>
 					</div>
 				)}
@@ -430,24 +560,34 @@ export function BattleStage({
 					</div>
 				)}
 
-				{/* Leave button */}
-				<button
-					onClick={onLeave}
-					className="btn-ghost"
+				{/* Leave button (dos pasos: la batalla no se pierde por un mis-click) */}
+				<ConfirmLeaveButton
+					onLeave={onLeave}
 					style={{ position: "absolute", top: 20, right: 20, zIndex: 25, fontSize: 10 }}
-				>
-					ABANDONAR
-				</button>
+				/>
 			</div>
 		</>
 	);
 }
 
-function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole: Role; onLeave: () => void }) {
+function ResultScreen({
+	battle,
+	myRole,
+	onRematch,
+	onLeave,
+}: {
+	battle: BattleState;
+	myRole: Role;
+	onRematch: () => void;
+	onLeave: () => void;
+}) {
 	const v = battle.verdict!;
 	const draw = v.winner === "draw";
 	const youWon = !draw && v.winner === myRole;
 	const [stage, setStage] = useState<"suspense" | "votes" | "final">("suspense");
+	const oppRole: Role = myRole === "p1" ? "p2" : "p1";
+	const opp = battle.players[oppRole];
+	const iWantRematch = battle.players[myRole].wantsRematch;
 	const winnerRole = draw ? null : (v.winner as Role);
 	const winnerName = winnerRole ? battle.players[winnerRole].name.toUpperCase() : "RÉPLICA";
 	const winnerVotes = winnerRole ? v.judges.filter((judge) => judge.vote === winnerRole).length : 0;
@@ -500,10 +640,10 @@ function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole
 			{stage !== "suspense" && (v.detail ? (
 				<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 24, width: "min(720px, 92vw)", marginTop: 10 }}>
 					<div className={`result-score-card${v.winner === "p1" ? " winner" : ""}`}>
-						<PlayerScore name={battle.players.p1.name} total={v.scores.p1} pv={v.detail.p1} highlight={v.winner === "p1"} />
+						<PlayerScore name={battle.players.p1.name} total={v.scores.p1} pv={v.detail.p1} highlight={v.winner === "p1"} elo={v.elo?.ranked ? v.elo.p1 : null} />
 					</div>
 					<div className={`result-score-card${v.winner === "p2" ? " winner" : ""}`}>
-						<PlayerScore name={battle.players.p2.name} total={v.scores.p2} pv={v.detail.p2} highlight={v.winner === "p2"} />
+						<PlayerScore name={battle.players.p2.name} total={v.scores.p2} pv={v.detail.p2} highlight={v.winner === "p2"} elo={v.elo?.ranked ? v.elo.p2 : null} />
 					</div>
 				</div>
 			) : (
@@ -543,11 +683,34 @@ function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole
 			)}
 
 			{stage === "final" && !draw && (
-				<div style={{ display: "flex", gap: 18, marginTop: 10 }}>
-					<button onClick={onLeave} className="btn-arena" style={{ fontSize: 20, padding: "16px 36px" }}>
-						<span>REVANCHA</span>
-					</button>
-					<button onClick={onLeave} className="btn-ghost">SALIR DE LA ARENA</button>
+				<div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 10 }}>
+					<div style={{ display: "flex", gap: 18 }}>
+						{opp.connected ? (
+							<button
+								onClick={onRematch}
+								disabled={iWantRematch}
+								className="btn-arena"
+								style={{ fontSize: 20, padding: "16px 36px" }}
+							>
+								<span>{iWantRematch ? "ESPERANDO AL RIVAL…" : "REVANCHA ⚔"}</span>
+							</button>
+						) : (
+							<button onClick={onLeave} className="btn-arena" style={{ fontSize: 20, padding: "16px 36px" }}>
+								<span>OTRA BATALLA</span>
+							</button>
+						)}
+						<button onClick={onLeave} className="btn-ghost">SALIR DE LA ARENA</button>
+					</div>
+					{opp.connected && opp.wantsRematch && !iWantRematch && (
+						<div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--red)" }}>
+							{(opp.name || "EL RIVAL").toUpperCase()} PIDE REVANCHA
+						</div>
+					)}
+					{!opp.connected && (
+						<div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--bone-dim)" }}>
+							EL RIVAL DEJÓ LA SALA
+						</div>
+					)}
 				</div>
 			)}
 		</div>
@@ -596,11 +759,13 @@ function PlayerScore({
 	total,
 	pv,
 	highlight,
+	elo,
 }: {
 	name: string;
 	total: number;
 	pv: PlayerVerdict;
 	highlight: boolean;
+	elo?: { before: number | null; after: number | null; delta: number } | null;
 }) {
 	return (
 		<div>
@@ -608,6 +773,23 @@ function PlayerScore({
 				<span className="crit-name">{name}</span>
 				<span className="crit-total">{total}</span>
 			</div>
+			{elo && elo.before !== null && elo.after !== null && (
+				<div
+					style={{
+						fontFamily: "var(--font-mono)",
+						fontSize: 11,
+						letterSpacing: "0.14em",
+						color: elo.delta >= 0 ? "var(--bone)" : "var(--bone-dim)",
+						margin: "4px 0 2px",
+					}}
+				>
+					ELO {elo.before} → {elo.after}{" "}
+					<span style={{ color: elo.delta >= 0 ? "#34d399" : "var(--red)" }}>
+						({elo.delta >= 0 ? "+" : ""}
+						{elo.delta})
+					</span>
+				</div>
+			)}
 			<div className="crit-list">
 				{CRITERIA.map((c, index) => {
 					const val = pv.criteria[c];

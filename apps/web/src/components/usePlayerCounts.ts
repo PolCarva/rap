@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { REALTIME_HTTP_URL } from "@/lib/realtime";
+import { getRealtimeHttpUrl } from "@/lib/realtime";
 
 export interface PlayerCounts {
 	total: number;
@@ -16,7 +16,7 @@ export function usePlayerCounts(): PlayerCounts {
 	useEffect(() => {
 		async function fetch_() {
 			try {
-				const res = await fetch(`${REALTIME_HTTP_URL}/stats`);
+				const res = await fetch(`${getRealtimeHttpUrl()}/stats`);
 				if (res.ok) setCounts(await res.json());
 			} catch {
 				// Counts are decorative; keep the last known value.

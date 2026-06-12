@@ -57,7 +57,7 @@ export function useDeepgramTranscription() {
 	}, []);
 
 	const start = useCallback(
-		async (onUpdate?: (full: string) => void) => {
+		async (onUpdate?: (full: string) => void, keywords?: string[]) => {
 			if (!supported || !secure) {
 				setError(!secure ? "insecure" : "unsupported");
 				return;
@@ -127,8 +127,9 @@ export function useDeepgramTranscription() {
 				ws.addEventListener("open", () => resolve(), { once: true });
 			});
 
-			// Config con el sample rate real (por si el browser no respetó 16k).
-			ws.send(JSON.stringify({ type: "config", sampleRate: ctx.sampleRate }));
+			// Config con el sample rate real (por si el browser no respetó 16k) y
+			// las palabras de la batalla para boost de transcripción.
+			ws.send(JSON.stringify({ type: "config", sampleRate: ctx.sampleRate, keywords: keywords ?? [] }));
 
 			// Pipeline de audio: mic -> worklet PCM16 -> WS.
 			await ctx.audioWorklet.addModule("/pcm-worklet.js");

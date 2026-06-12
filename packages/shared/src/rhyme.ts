@@ -334,6 +334,35 @@ export function analyzeRhymes(text: string): RhymeSegment[] {
 		}
 	}
 
+	// 3b) PASADA C — Asonancia: palabras sin rima consonante cuya cola comparte
+	// solo las VOCALES desde la tónica ("camino"/"amigo" → i-o). Es la rima más
+	// usada del freestyle en español. Exige ≥2 vocales para descartar ruido, y
+	// palabras tónicas (las átonas no anclan rima).
+	const assonantGroups = new Map<string, number[]>();
+	for (let wi = 0; wi < words.length; wi++) {
+		const w = words[wi]!;
+		if (w.atonic) continue;
+		const tailStart = w.start + w.stress;
+		let free = true;
+		for (let k = tailStart; k < w.end; k++) if (assigned[k]) free = false;
+		if (!free) continue;
+		const from = syls[tailStart]!.nucleusAbs;
+		const to = syls[w.end - 1]!.absEnd;
+		const key = [...phoneticTail(text.slice(from, to))].filter((c) => "aeiou".includes(c)).join("");
+		if (key.length < 2) continue;
+		(assonantGroups.get(key) ?? assonantGroups.set(key, []).get(key)!).push(wi);
+	}
+	for (const [key, wis] of assonantGroups) {
+		if (wis.length < 2) continue;
+		const group = groupFor(`a:${key}`);
+		for (const wi of wis) {
+			const w = words[wi]!;
+			const tailStart = w.start + w.stress;
+			for (let k = tailStart; k < w.end; k++) assigned[k] = true;
+			spans.push({ start: syls[tailStart]!.nucleusAbs, end: syls[w.end - 1]!.absEnd, group });
+		}
+	}
+
 	// 4) Mapear color por carácter y emitir segmentos.
 	const charGroup = new Array<number | null>(text.length).fill(null);
 	for (const sp of spans) {

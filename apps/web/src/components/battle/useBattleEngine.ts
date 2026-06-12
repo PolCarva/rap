@@ -127,7 +127,25 @@ export function useBattleEngine() {
 			}
 			if (msg.kind === "snapshot") {
 				lastPhaseRef.current = msg.state.phase;
-				setState((s) => ({ ...s, view: "battle", battle: msg.state, myRole: role, reconnecting: false }));
+				setState((s) => {
+					// Al cambiar de turno (o de batalla/réplica), limpiar el caption del
+					// rival para que no quede pegado el verso anterior.
+					const prev = s.battle;
+					const sameTurn =
+						prev !== null &&
+						prev.battleId === msg.state.battleId &&
+						prev.replicaCount === msg.state.replicaCount &&
+						prev.round === msg.state.round &&
+						prev.activeRole === msg.state.activeRole;
+					return {
+						...s,
+						view: "battle",
+						battle: msg.state,
+						myRole: role,
+						reconnecting: false,
+						opponentCaption: sameTurn ? s.opponentCaption : "",
+					};
+				});
 			} else if (msg.kind === "caption") {
 				if (msg.role !== role) setState((s) => ({ ...s, opponentCaption: msg.text }));
 			} else if (msg.kind === "signal") {
@@ -258,6 +276,10 @@ export function useBattleEngine() {
 		roomRef.current?.send(JSON.stringify({ kind: "verse", text }));
 	}, []);
 
+	const sendRematch = useCallback(() => {
+		roomRef.current?.send(JSON.stringify({ kind: "rematch" }));
+	}, []);
+
 	const leave = useCallback(() => {
 		leftRef.current = true;
 		writeStoredBattle(null);
@@ -273,5 +295,5 @@ export function useBattleEngine() {
 	// Cerrar sockets al desmontar el componente.
 	useEffect(() => closeSockets, [closeSockets]);
 
-	return { state, search, cancelSearch, resume, sendReady, sendCaption, sendSignal, submitVerse, leave };
+	return { state, search, cancelSearch, resume, sendReady, sendCaption, sendSignal, submitVerse, sendRematch, leave };
 }

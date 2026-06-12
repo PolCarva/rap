@@ -1,4 +1,13 @@
-import { analyzeRhymes, getModality, type BattleState, type Role, type Verdict } from "@rap/shared";
+import {
+	analyzeRhymes,
+	getModality,
+	roundStarter,
+	turnDurationMs,
+	type BattleState,
+	type PlayerVerdict,
+	type Role,
+	type Verdict,
+} from "@rap/shared";
 import { z } from "zod";
 import type { Env } from "./env";
 
@@ -135,7 +144,7 @@ function toVerdict(
 	const p1 = norm(out.p1);
 	const p2 = norm(out.p2);
 
-	const outcome = votesFromScores(p1.total, p2.total, replicaCount);
+	const outcome = votesFromDetail(p1, p2, replicaCount);
 
 	return {
 		winner: outcome.winner,
@@ -144,6 +153,72 @@ function toVerdict(
 		rationale: out.rationale,
 		detail: { p1, p2 },
 		model,
+	};
+}
+
+/**
+ * Perfiles de los tres jueces: cada uno pondera distinto los criterios, como
+ * un jurado real. El voto dividido sale de una lectura genuina del desglose
+ * (un juez "técnico" puede preferir al de mejores rimas aunque pierda en
+ * total), no de un disenso fabricado.
+ */
+const JUDGE_PROFILES: Record<keyof PlayerVerdict["criteria"], number>[] = [
+	// Juez 1 — técnico: rimas y flow.
+	{ flow: 0.3, rimas: 0.4, punchlines: 0.15, respuesta: 0.05, palabras: 0.1 },
+	// Juez 2 — impacto: punchlines y respuesta.
+	{ flow: 0.1, rimas: 0.15, punchlines: 0.4, respuesta: 0.25, palabras: 0.1 },
+	// Juez 3 — global: balanceado (cercano al total).
+	{ flow: 0.25, rimas: 0.25, punchlines: 0.25, respuesta: 0.1, palabras: 0.15 },
+];
+
+function profileScore(pv: PlayerVerdict, weights: Record<keyof PlayerVerdict["criteria"], number>): number {
+	let sum = 0;
+	let totalW = 0;
+	for (const key of Object.keys(weights) as (keyof PlayerVerdict["criteria"])[]) {
+		const val = pv.criteria[key];
+		if (val === null) continue; // criterio no aplica: se renormaliza
+		sum += val * weights[key];
+		totalW += weights[key];
+	}
+	return totalW > 0 ? sum / totalW : 0;
+}
+
+function votesFromDetail(p1: PlayerVerdict, p2: PlayerVerdict, replicaCount: number): Pick<Verdict, "winner" | "judges"> {
+	const diff = Math.abs(p1.total - p2.total);
+	if (diff <= REPLICA_DIFF && replicaCount < MAX_REPLICAS) {
+		return {
+			winner: "draw",
+			judges: [
+				{ judge: 1, vote: "replica" },
+				{ judge: 2, vote: "replica" },
+				{ judge: 3, vote: "replica" },
+			],
+		};
+	}
+
+	const winner: Role = p1.total >= p2.total ? "p1" : "p2";
+	const votes = JUDGE_PROFILES.map((weights) => {
+		const s1 = profileScore(p1, weights);
+		const s2 = profileScore(p2, weights);
+		// Diferencias mínimas de perfil no alcanzan para disentir del total.
+		if (Math.abs(s1 - s2) < 0.35) return { vote: winner, margin: 0 };
+		const vote: Role = s1 > s2 ? "p1" : "p2";
+		return { vote, margin: Math.abs(s1 - s2) };
+	});
+
+	// El ganador por total debe retener la mayoría: si dos perfiles disienten,
+	// el de menor margen se alinea (el total manda, el disenso queda en 2-1).
+	const dissenters = votes
+		.map((v, i) => ({ ...v, i }))
+		.filter((v) => v.vote !== winner)
+		.sort((a, b) => a.margin - b.margin);
+	for (let k = 0; k < dissenters.length - 1; k++) {
+		votes[dissenters[k]!.i] = { vote: winner, margin: 0 };
+	}
+
+	return {
+		winner,
+		judges: votes.map((v, i) => ({ judge: i + 1, vote: v.vote })),
 	};
 }
 
@@ -198,7 +273,7 @@ function systemPrompt(state: BattleState): string {
 	const weights: Record<string, string> = {
 		"4x4": "Es una batalla directa de ida y vuelta: la RESPUESTA (réplica a lo que dijo el rival) y los PUNCHLINES pesan más.",
 		"minuto-libre": "Es minuto libre: valorá sobre todo el FLOW y las RIMAS sostenidas, el despliegue y el contenido continuo. No hay réplica directa, así que 'respuesta' importa menos.",
-		palabras: "El USO de las palabras obligatorias es decisivo: premiá usarlas TODAS, integrarlas con sentido y, sobre todo, rimar o construir punchlines alrededor de ellas. Penalizá las que no use.",
+		palabras: "El USO de las palabras obligatorias es decisivo: premiá usarlas TODAS, integrarlas con sentido y, sobre todo, rimar o construir punchlines alrededor de ellas. Penalizá las que no use NI referencie.",
 		deconceptos: "Premiá el DESARROLLO y el hilado de los conceptos dados: profundidad, coherencia y construir contenido alrededor de ellos.",
 	};
 
@@ -213,7 +288,11 @@ function systemPrompt(state: BattleState): string {
 		"- rimas: cantidad y calidad; valorá rimas múltiples/compuestas y penalizá las forzadas u obvias.",
 		"- punchlines: ingenio, remates, metáforas, doble sentido e impacto.",
 		"- respuesta: si contesta/replica lo que dijo el rival.",
-		`- palabras: ${hasWords ? "qué tan bien usa e integra las palabras/conceptos obligatorios (y si rima con ellos)." : "esta modalidad NO tiene palabras obligatorias, así que poné palabras: null."}`,
+		`- palabras: ${
+			hasWords
+				? "qué tan bien usa e integra las palabras/conceptos obligatorios (y si rima con ellos). IMPORTANTE: también valen las REFERENCIAS CONCEPTUALES, no solo la palabra literal — si la palabra es 'gato', cuentan 'siete vidas', 'Allan Poe', 'mala suerte', 'maullar', 'bigotes'; si es 'espejo', cuentan 'reflejo', 'verse la cara', 'el otro yo'. Una alusión ingeniosa al campo semántico vale tanto o más que soltar la palabra suelta sin trabajarla. Abajo va el chequeo literal automático: si una palabra figura como NO usada literalmente, revisá si la referenció antes de puntuar bajo."
+				: "esta modalidad NO tiene palabras obligatorias, así que poné palabras: null."
+		}`,
 		"",
 		`Modalidad: ${mod.name}. ${weights[state.modality] ?? ""}`,
 		"",
@@ -247,32 +326,63 @@ function rhymeStats(verses: string[]): string {
 	return `${wordCount} palabras, ${groups.size} familias de rima detectadas, ${rhymed} segmentos rimados`;
 }
 
+/** Normaliza para comparar uso literal: minúsculas y sin tildes. */
+function normalizeText(s: string): string {
+	return s
+		.toLowerCase()
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Chequeo literal automático de cada palabra obligatoria en los versos. */
+function literalWordUsage(words: string[], verses: string[]): string {
+	if (words.length === 0) return "";
+	const text = normalizeText(verses.join(" "));
+	const parts = words.map((w) => {
+		// Para conceptos multi-palabra alcanza con la palabra clave (última).
+		const key = normalizeText(w).split(/\s+/).pop()!;
+		return `${w}: ${text.includes(key) ? "usada literal" : "NO literal (buscá referencias indirectas)"}`;
+	});
+	return parts.join("; ");
+}
+
 function userPrompt(state: BattleState): string {
 	const mod = getModality(state.modality);
-	const versesOf = (role: Role) =>
-		state.verses[role].length > 0
-			? state.verses[role].map((v, i) => `  Ronda ${i + 1}: ${v || "(no rapeó)"}`).join("\n")
-			: "  (sin versos)";
+	const turnSec = Math.round(turnDurationMs(mod, state.beat?.bpm) / 1000);
+
+	// Transcripción en el orden REAL de los turnos (quién abre alterna por
+	// ronda), para que "respuesta" se juzgue sabiendo quién contestó a quién.
+	const timeline: string[] = [];
+	for (let round = 1; round <= state.totalRounds; round++) {
+		const first = roundStarter(round, state.replicaCount);
+		const second: Role = first === "p1" ? "p2" : "p1";
+		for (const role of [first, second]) {
+			const verse = state.verses[role][round - 1];
+			if (verse === undefined) continue;
+			timeline.push(`Ronda ${round} — ${role} (${state.players[role].name}): ${verse || "(no rapeó)"}`);
+		}
+	}
 
 	const lines = [
 		`Modalidad: ${mod.name} — ${mod.description}`,
 		`Palabras/conceptos obligatorios: ${state.words.length ? state.words.join(", ") : "ninguna"}`,
-		`Estructura: ${state.totalRounds} ronda(s) por jugador, ${mod.turnDurationSec}s por turno.`,
+		`Estructura: ${state.totalRounds} ronda(s) por jugador, ~${turnSec}s por turno. Quién abre cada ronda alterna.`,
 		state.beat ? `Beat: ${state.beat.name}${state.beat.bpm ? ` a ${state.beat.bpm} BPM` : ""} (ambos rapearon sobre la misma pista).` : "Sin beat.",
 	];
 	if (state.replicaCount > 0) {
 		lines.push(`ATENCIÓN: es la réplica n°${state.replicaCount} tras empate; evitá otro empate salvo paridad total.`);
 	}
-	lines.push(
-		"",
-		`Jugador p1 = ${state.players.p1.name}:`,
-		versesOf("p1"),
-		`  [análisis fonético objetivo: ${rhymeStats(state.verses.p1)}]`,
-		"",
-		`Jugador p2 = ${state.players.p2.name}:`,
-		versesOf("p2"),
-		`  [análisis fonético objetivo: ${rhymeStats(state.verses.p2)}]`,
-	);
+	lines.push("", "Desarrollo de la batalla, en el orden real de los turnos:", ...timeline.map((l) => `  ${l}`));
+	for (const role of ["p1", "p2"] as const) {
+		lines.push(
+			"",
+			`Datos objetivos de ${role} (${state.players[role].name}):`,
+			`  [análisis fonético: ${rhymeStats(state.verses[role])}]`,
+		);
+		if (state.words.length > 0) {
+			lines.push(`  [chequeo literal de palabras: ${literalWordUsage(state.words, state.verses[role])}]`);
+		}
+	}
 	return lines.join("\n");
 }
 
@@ -282,11 +392,11 @@ function userPrompt(state: BattleState): string {
  */
 export function judgeHeuristic(state: BattleState): Verdict {
 	const score = (verses: string[]): number => {
-		const text = verses.join(" ").toLowerCase();
+		const text = normalizeText(verses.join(" "));
 		const words = text.split(/\s+/).filter(Boolean);
 		let s = words.length;
 		for (const w of state.words) {
-			if (text.includes(w.toLowerCase())) s += 10;
+			if (text.includes(normalizeText(w))) s += 10;
 		}
 		return s;
 	};

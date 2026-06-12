@@ -113,6 +113,8 @@ export const roomClientMessageSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("signal"), signal: rtcSignalSchema }),
 	/** Transcripción final del turno del jugador activo. Cierra su turno. */
 	z.object({ kind: z.literal("verse"), text: z.string().max(4000) }),
+	/** Pedir revancha tras el veredicto; con ambos pedidos arranca otra batalla. */
+	z.object({ kind: z.literal("rematch") }),
 	/** Abandonar la batalla. */
 	z.object({ kind: z.literal("leave") }),
 ]);
@@ -126,6 +128,8 @@ export const playerStateSchema = z.object({
 	isGuest: z.boolean().default(true),
 	connected: z.boolean(),
 	ready: z.boolean(),
+	/** Pidió revancha en la pantalla de resultado. */
+	wantsRematch: z.boolean().default(false),
 });
 export type PlayerState = z.infer<typeof playerStateSchema>;
 

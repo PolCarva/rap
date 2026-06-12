@@ -17,6 +17,8 @@ export function BattleApp() {
 	const [modality, setModality] = useState<ModalityId>("minuto-libre");
 	const { state } = engine;
 	const resumedRef = useRef(false);
+	// Última búsqueda, para re-encolar con la misma config si el rival abandona.
+	const lastSearchRef = useRef<{ session: RapSession; modality: ModalityId; beatId: string | null } | null>(null);
 
 	// Tras un refresh, retomar la batalla activa si la había.
 	const { resume } = engine;
@@ -51,7 +53,17 @@ export function BattleApp() {
 				onCaption={engine.sendCaption}
 				onSignal={engine.sendSignal}
 				onSubmitVerse={engine.submitVerse}
+				onRematch={engine.sendRematch}
 				onLeave={engine.leave}
+				onRequeue={
+					lastSearchRef.current
+						? () => {
+								const last = lastSearchRef.current!;
+								engine.leave();
+								void engine.search(last.session, last.modality, last.beatId);
+							}
+						: null
+				}
 			/>
 		);
 	}
@@ -95,6 +107,7 @@ export function BattleApp() {
 					}),
 				}).catch(() => {});
 				setModality(m);
+				lastSearchRef.current = { session: nextSession, modality: m, beatId };
 				engine.search(nextSession, m, beatId);
 			}}
 		/>
