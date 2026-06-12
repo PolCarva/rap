@@ -1,14 +1,16 @@
 "use client";
 
-import { CrowdEffect } from "@/components/CrowdEffect";
 import { AppNav } from "@/components/AppNav";
-import { SmokeCanvas } from "@/components/SmokeCanvas";
-import { useAudioEngine } from "@/components/useAudioEngine";
+import { Reveal } from "@/components/fx/Reveal";
+import { TransitionLink } from "@/components/fx/PageTransition";
 import { usePlayerCounts } from "@/components/usePlayerCounts";
-import Link from "next/link";
+import { MODALITIES, MODALITY_IDS, type RankingEntry } from "@rap/shared";
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 
-const MARQUEE_ITEMS = ["EASY MODE", "4X4", "MINUTO LIBRE", "HARD MODE", "TEMÁTICAS", "FREESTYLE", "PUNCHLINES", "FLOW", "BARRAS"];
+const HeroScene = dynamic(() => import("@/components/three/HeroScene").then((m) => m.HeroScene), {
+	ssr: false,
+});
 
 interface TickerBattle {
 	id: string;
@@ -17,38 +19,52 @@ interface TickerBattle {
 	winner: "p1" | "p2" | "draw" | null;
 	scoreP1: number | null;
 	scoreP2: number | null;
-	modality: string;
 	status: string;
 }
 
-/** Título partido en letras para la micro-interacción de hover. */
-function KineticRow({ text, className }: { text: string; className: string }) {
-	return (
-		<span className={`row ${className}`} aria-label={text}>
-			{[...text].map((ch, i) => (
-				<span key={i} className="kin" style={{ animationDelay: `${i * 60}ms` }} aria-hidden="true">
-					{ch}
-				</span>
-			))}
-		</span>
-	);
-}
+const STEPS = [
+	{
+		num: "01",
+		title: "ARMÁ TU ENTRADA",
+		body: "Elegí tu AKA, el modo de batalla y el beat. Probá cámara y mic: el escenario es tuyo.",
+	},
+	{
+		num: "02",
+		title: "RAPEÁ EN VIVO",
+		body: "Matchmaking en segundos. Cara a cara, por turnos, con transcripción palabra por palabra y tus rimas coloreadas en tiempo real.",
+	},
+	{
+		num: "03",
+		title: "EL JUEZ DECIDE",
+		body: "Una IA entrenada como jurado profesional puntúa flow, rimas, punchlines y respuesta. ELO real, ranking real, sin amiguismos.",
+	},
+] as const;
+
+const DIFF: Record<string, string> = {
+	"4x4": "MEDIO",
+	"minuto-libre": "ABIERTO",
+	palabras: "DIFÍCIL",
+	deconceptos: "CONCEPTUAL",
+};
 
 export default function Home() {
-	const audio = useAudioEngine();
 	const counts = usePlayerCounts();
-	const mainRef = useRef<HTMLElement>(null);
-	const ctaRef = useRef<HTMLAnchorElement>(null);
 	const [ticker, setTicker] = useState<TickerBattle[]>([]);
+	const [top, setTop] = useState<RankingEntry[]>([]);
+	const heroRef = useRef<HTMLDivElement>(null);
 
-	// Batallas recientes reales para el ticker inferior.
 	useEffect(() => {
 		let active = true;
 		fetch("/api/battles")
 			.then((r) => r.json() as Promise<{ battles: TickerBattle[] }>)
 			.then(({ battles }) => {
-				if (!active) return;
-				setTicker(battles.filter((battle) => battle.status === "finished" && battle.winner && battle.winner !== "draw").slice(0, 8));
+				if (active) setTicker(battles.filter((b) => b.status === "finished" && b.winner && b.winner !== "draw").slice(0, 8));
+			})
+			.catch(() => {});
+		fetch("/api/ranking")
+			.then((r) => r.json() as Promise<{ ranking: RankingEntry[] }>)
+			.then(({ ranking }) => {
+				if (active) setTop(ranking.slice(0, 3));
 			})
 			.catch(() => {});
 		return () => {
@@ -56,145 +72,85 @@ export default function Home() {
 		};
 	}, []);
 
-	// Parallax sutil: el escenario respira con el mouse (CSS vars --mx/--my).
+	// El hero se desvanece y encoge al scrollear (efecto cámara que se aleja).
 	useEffect(() => {
-		const el = mainRef.current;
+		const el = heroRef.current;
 		if (!el) return;
-		const onMove = (e: MouseEvent) => {
-			const x = e.clientX / window.innerWidth - 0.5;
-			const y = e.clientY / window.innerHeight - 0.5;
-			el.style.setProperty("--mx", x.toFixed(3));
-			el.style.setProperty("--my", y.toFixed(3));
+		let raf = 0;
+		const onScroll = () => {
+			cancelAnimationFrame(raf);
+			raf = requestAnimationFrame(() => {
+				const p = Math.min(1, window.scrollY / window.innerHeight);
+				el.style.setProperty("--scroll-p", p.toFixed(3));
+			});
 		};
-		window.addEventListener("mousemove", onMove, { passive: true });
-		return () => window.removeEventListener("mousemove", onMove);
-	}, []);
-
-	// CTA magnético: se inclina hacia el cursor cuando está cerca.
-	useEffect(() => {
-		const btn = ctaRef.current;
-		if (!btn) return;
-		const onMove = (e: MouseEvent) => {
-			const rect = btn.getBoundingClientRect();
-			const cx = rect.left + rect.width / 2;
-			const cy = rect.top + rect.height / 2;
-			const dx = e.clientX - cx;
-			const dy = e.clientY - cy;
-			const dist = Math.hypot(dx, dy);
-			const radius = 180;
-			if (dist < radius) {
-				const pull = (1 - dist / radius) * 10;
-				btn.style.transform = `translate(${(dx / dist) * pull || 0}px, ${(dy / dist) * pull || 0}px)`;
-			} else {
-				btn.style.transform = "";
-			}
+		window.addEventListener("scroll", onScroll, { passive: true });
+		return () => {
+			cancelAnimationFrame(raf);
+			window.removeEventListener("scroll", onScroll);
 		};
-		window.addEventListener("mousemove", onMove, { passive: true });
-		return () => window.removeEventListener("mousemove", onMove);
 	}, []);
 
 	return (
-		<main ref={mainRef} className="landing-stage" style={{ position: "relative", height: "100vh", overflow: "hidden", background: "var(--ink)" }}>
-			{/* Smoke canvas — z-index 1 */}
-			<div className="px-smoke">
-				<SmokeCanvas count={16} redChance={0.3} />
-			</div>
-
-			{/* Spotlight cones — z-index 2 */}
-			<div className="px-spots">
-				<div className="arena-spot left" />
-				<div className="arena-spot right" />
-			</div>
-
-			{/* Grain + vignette — z-index 80–90 */}
-			<div className="arena-grain" />
-			<div className="arena-vignette" />
-
-			{/* Crowd silhouettes — z-index 50 */}
-			<div className="px-crowd">
-				<CrowdEffect count={40} />
-			</div>
-
+		<main className="cine">
 			<AppNav status={`${counts.total > 0 ? counts.total : "-"} MCS EN LINEA - UNDERGROUND FREESTYLE LEAGUE`} />
 
-			{/* Hero stage — z-index 10 */}
-			<div
-				style={{
-					position: "relative",
-					height: "100vh",
-					display: "flex",
-					flexDirection: "column",
-					alignItems: "center",
-					justifyContent: "center",
-					padding: "64px 20px 110px",
-					zIndex: 10,
-				}}
-			>
-				<div className="arena-hero px-hero">
-					<div className="arena-hero-over">EL CYPHER ESTÁ ABIERTO — NO MERCY</div>
-					<h1>
-						<KineticRow text="RAP" className="rap arena-hero-rap" />
-						<KineticRow text="ARENA" className="arena arena-hero-arena" />
+			{/* ============ ACTO 1: HERO 3D ============ */}
+			<section className="cine-hero" ref={heroRef}>
+				<HeroScene />
+				<div className="arena-grain" />
+				<div className="cine-hero-content">
+					<p className="cine-over glitch" data-text="UNDERGROUND FREESTYLE LEAGUE">
+						UNDERGROUND FREESTYLE LEAGUE
+					</p>
+					<h1 className="cine-title" aria-label="RAP ARENA">
+						<span className="line">
+							{[..."RAP"].map((c, i) => (
+								<span key={i} className="ch" style={{ animationDelay: `${0.35 + i * 0.07}s` }}>
+									{c}
+								</span>
+							))}
+						</span>
+						<span className="line filled">
+							{[..."ARENA"].map((c, i) => (
+								<span key={i} className="ch" style={{ animationDelay: `${0.6 + i * 0.07}s` }}>
+									{c}
+								</span>
+							))}
+						</span>
 					</h1>
-					<div className="arena-hero-under">
-						<span className="bar" />
-						<span>BATALLAS 1 VS 1 · EN VIVO · SIN FILTRO</span>
-						<span className="bar" />
+					<p className="cine-sub">TU VOZ ES EL ARMA · BATALLAS 1VS1 EN VIVO · UN JUEZ IA SIN PIEDAD</p>
+					<div className="cine-cta-row">
+						<TransitionLink href="/arena" className="btn-arena cine-cta">
+							<span>ENTRAR A LA ARENA →</span>
+						</TransitionLink>
+						<TransitionLink href="/ranking" className="btn-ghost cine-cta-ghost">
+							VER EL RANKING
+						</TransitionLink>
 					</div>
 				</div>
-
-				{/* CTA — staggered entrance */}
-				<div className="arena-cta-zone" style={{ position: "relative", zIndex: 56, marginTop: "5.5vh", display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
-					<Link
-						ref={ctaRef}
-						href="/arena"
-						className="btn-arena cta-magnetic"
-						style={{ fontSize: "clamp(20px, 2.3vw, 28px)", letterSpacing: "0.06em", padding: "18px 48px" }}
-					>
-						<span>EMPEZAR A RAPEAR →</span>
-					</Link>
-					<div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--bone-dim)" }}>
-						NECESITAS MIC + CÁMARA · ENTRA BAJO TU PROPIO RIESGO
-					</div>
+				<div className="cine-scroll-hint" aria-hidden="true">
+					<span className="wheel" />
+					SCROLL
 				</div>
-			</div>
-
-			{/* Sound toggle — z-index 70 */}
-			<button
-				onClick={audio.toggle}
-				className="btn-ghost"
-				style={{
-					position: "fixed",
-					right: 28,
-					bottom: ticker.length > 0 ? 96 : 64,
-					zIndex: 70,
-					fontSize: 11,
-					letterSpacing: "0.2em",
-				}}
-			>
-				SONIDO: {audio.on ? "ON" : "OFF"}
-			</button>
-
-			{/* Bottom strip — z-index 55 */}
-			<div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 55 }}>
 				{ticker.length > 0 && (
-					<div className="live-ticker" aria-label="Resultados recientes">
+					<div className="live-ticker cine-ticker" aria-label="Resultados recientes">
 						<span className="live-ticker-label">
 							<span className="arena-live-dot" style={{ margin: 0 }} />
 							ÚLTIMOS VEREDICTOS
 						</span>
 						<div className="live-ticker-track">
-							{[...ticker, ...ticker].map((battle, i) => {
-								const winner = battle.winner === "p1" ? battle.player1Name : battle.player2Name;
-								const loser = battle.winner === "p1" ? battle.player2Name : battle.player1Name;
+							{[...ticker, ...ticker].map((b, i) => {
+								const winner = b.winner === "p1" ? b.player1Name : b.player2Name;
+								const loser = b.winner === "p1" ? b.player2Name : b.player1Name;
 								const score =
-									battle.scoreP1 !== null && battle.scoreP2 !== null
-										? battle.winner === "p1"
-											? `${battle.scoreP1}-${battle.scoreP2}`
-											: `${battle.scoreP2}-${battle.scoreP1}`
+									b.scoreP1 !== null && b.scoreP2 !== null
+										? b.winner === "p1"
+											? `${b.scoreP1}-${b.scoreP2}`
+											: `${b.scoreP2}-${b.scoreP1}`
 										: "";
 								return (
-									<span key={`${battle.id}:${i}`} className="live-ticker-item">
+									<span key={`${b.id}:${i}`} className="live-ticker-item">
 										<b>{winner.toUpperCase()}</b> VENCIÓ A {loser.toUpperCase()} {score && <em>{score}</em>}
 										<span className="x">✕</span>
 									</span>
@@ -203,16 +159,106 @@ export default function Home() {
 						</div>
 					</div>
 				)}
-				<div className="arena-marquee">
+			</section>
+
+			{/* ============ ACTO 2: LOS MODOS ============ */}
+			<section className="cine-section">
+				<Reveal className="cine-section-head">
+					<p className="cine-kicker">ELEGÍ TU GUERRA</p>
+					<h2 className="cine-h2">
+						CUATRO <em>MODOS</em>
+					</h2>
+				</Reveal>
+				<div className="cine-modes">
+					{MODALITY_IDS.map((id, index) => {
+						const m = MODALITIES[id];
+						return (
+							<Reveal key={id} delay={index * 90} className="cine-mode-wrap">
+								<TransitionLink href="/arena" className="cine-mode">
+									<span className="cine-mode-index">{String(index + 1).padStart(2, "0")}</span>
+									<span className="cine-mode-name">{m.name}</span>
+									<span className="cine-mode-desc">{m.description}</span>
+									<span className="cine-mode-meta">
+										{m.rounds} × {m.turnDurationSec}S · {DIFF[id]}
+									</span>
+									<span className="cine-mode-arrow">→</span>
+								</TransitionLink>
+							</Reveal>
+						);
+					})}
+				</div>
+			</section>
+
+			{/* ============ ACTO 3: CÓMO FUNCIONA ============ */}
+			<section className="cine-section dark">
+				<Reveal className="cine-section-head">
+					<p className="cine-kicker">DEL SOFÁ AL ESCENARIO</p>
+					<h2 className="cine-h2">
+						ASÍ SE <em>PELEA</em>
+					</h2>
+				</Reveal>
+				<div className="cine-steps">
+					{STEPS.map((step, index) => (
+						<Reveal key={step.num} delay={index * 120} className="cine-step">
+							<span className="cine-step-num">{step.num}</span>
+							<h3>{step.title}</h3>
+							<p>{step.body}</p>
+						</Reveal>
+					))}
+				</div>
+			</section>
+
+			{/* ============ ACTO 4: RANKING ============ */}
+			{top.length > 0 && (
+				<section className="cine-section">
+					<Reveal className="cine-section-head">
+						<p className="cine-kicker">LA TABLA NO MIENTE</p>
+						<h2 className="cine-h2">
+							LOS <em>CAPOS</em>
+						</h2>
+					</Reveal>
+					<div className="cine-top">
+						{top.map((mc, index) => (
+							<Reveal key={mc.id} delay={index * 100}>
+								<TransitionLink href={`/perfil/${encodeURIComponent(mc.id)}`} className="cine-top-row">
+									<span className="pos">{String(index + 1).padStart(2, "0")}</span>
+									<span className="handle">{mc.handle.toUpperCase()}</span>
+									<span className="elo">
+										{mc.elo}
+										<small>ELO</small>
+									</span>
+								</TransitionLink>
+							</Reveal>
+						))}
+					</div>
+					<Reveal delay={250} className="cine-center">
+						<TransitionLink href="/ranking" className="btn-ghost">
+							RANKING COMPLETO →
+						</TransitionLink>
+					</Reveal>
+				</section>
+			)}
+
+			{/* ============ ACTO FINAL: CTA ============ */}
+			<section className="cine-final">
+				<div className="cine-final-marquee" aria-hidden="true">
 					<div className="track">
-						{[...MARQUEE_ITEMS, ...MARQUEE_ITEMS].flatMap((item, i) => [
-							<span key={`t${i}`}>{item}</span>,
-							<span key={`x${i}`} className="x">✕</span>,
-						])}
+						{Array.from({ length: 8 }, (_, i) => (
+							<span key={i}>
+								DEMOSTRALO EN LA ARENA <span className="x">✕</span>
+							</span>
+						))}
 					</div>
 				</div>
+				<Reveal className="cine-final-inner">
+					<h2 className="cine-final-title">¿TENÉS BARRAS?</h2>
+					<TransitionLink href="/arena" className="btn-arena cine-cta">
+						<span>BUSCAR RIVAL AHORA →</span>
+					</TransitionLink>
+					<p className="cine-final-note">GRATIS · SIN DESCARGAS · SOLO TU VOZ</p>
+				</Reveal>
 				<div className="arena-stripe" />
-			</div>
+			</section>
 		</main>
 	);
 }

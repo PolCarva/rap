@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { RapSessionProvider } from "@/components/battle/useRapSession";
+import { CinematicCursor } from "@/components/fx/CinematicCursor";
+import { PageTransitionProvider } from "@/components/fx/PageTransition";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,7 +26,10 @@ export default function RootLayout({
 				/>
 			</head>
 			<body>
-				<RapSessionProvider>{children}</RapSessionProvider>
+				<RapSessionProvider>
+					<PageTransitionProvider>{children}</PageTransitionProvider>
+				</RapSessionProvider>
+				<CinematicCursor />
 			</body>
 		</html>
 	);
