@@ -1,13 +1,38 @@
 "use client";
 
 import { MODALITIES, type ModalityId } from "@rap/shared";
+import { useEffect, useState } from "react";
+import { usePlayerCounts } from "@/components/usePlayerCounts";
 
 interface Props {
 	modality: ModalityId;
 	onCancel: () => void;
 }
 
+const TIPS = [
+	"CALENTÁ LA VOZ: EL PRIMER VERSO MARCA EL RITMO",
+	"ESCUCHÁ EL BEAT ANTES DE ENTRAR: CAÉ EN EL TEMPO",
+	"LAS RIMAS MULTISILÁBICAS PUNTÚAN MÁS ALTO",
+	"RESPONDÉ LO QUE DIJO TU RIVAL: EL JUEZ LO PREMIA",
+	"REMATÁ CADA RONDA CON TU MEJOR PUNCHLINE",
+];
+
 export function SearchingScreen({ modality, onCancel }: Props) {
+	const counts = usePlayerCounts();
+	const [tipIndex, setTipIndex] = useState(0);
+	const [seconds, setSeconds] = useState(0);
+
+	useEffect(() => {
+		const tip = setInterval(() => setTipIndex((i) => (i + 1) % TIPS.length), 4200);
+		const sec = setInterval(() => setSeconds((s) => s + 1), 1000);
+		return () => {
+			clearInterval(tip);
+			clearInterval(sec);
+		};
+	}, []);
+
+	const waiting = counts.byModality[modality] ?? 0;
+
 	return (
 		<div className="battle-phase">
 			<div className="arena-grain" />
@@ -19,10 +44,17 @@ export function SearchingScreen({ modality, onCancel }: Props) {
 				BUSCANDO RIVAL<span className="red">…</span>
 			</div>
 			<div className="battle-searching-sub">
-				MODO: {MODALITIES[modality].name.toUpperCase()}
+				MODO: {MODALITIES[modality].name.toUpperCase()} · {String(Math.floor(seconds / 60)).padStart(2, "0")}:
+				{String(seconds % 60).padStart(2, "0")}
 			</div>
-			<p style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.22em", textTransform: "uppercase", color: "var(--bone-dim)", maxWidth: 360, textAlign: "center" }}>
-				ABRE ESTA PÁGINA EN OTRA PESTAÑA CON LA MISMA MODALIDAD PARA EMPAREJARTE
+			{waiting > 0 && (
+				<div className="searching-live">
+					<span className="arena-live-dot" style={{ margin: 0 }} />
+					{waiting} MC{waiting === 1 ? "" : "S"} EN COLA EN ESTE MODO
+				</div>
+			)}
+			<p key={tipIndex} className="searching-tip">
+				{TIPS[tipIndex]}
 			</p>
 			<button onClick={onCancel} className="btn-ghost">
 				CANCELAR BÚSQUEDA

@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { recordBattleResult, recordBattleStart, type PersistedIdentity } from "@rap/db";
+import { recordBattleAbort, recordBattleResult, recordBattleStart, type PersistedIdentity } from "@rap/db";
 import {
 	getModality,
 	roomClientMessageSchema,
@@ -16,6 +16,10 @@ import { judgeBattle } from "./judge";
 
 const COUNTDOWN_MS = 3000;
 const REPLICA_PAUSE_MS = 5200;
+/** Tiempo que se espera a un jugador desconectado antes de abortar la sala. */
+const DISCONNECT_GRACE_MS = 45_000;
+/** TTL del storage del DO una vez terminada la batalla. */
+const ROOM_CLEANUP_MS = 15 * 60 * 1000;
 
 interface RoomAttachment {
 	role: Role;
@@ -122,18 +126,31 @@ export class BattleRoom extends DurableObject<Env> {
 
 		switch (msg.kind) {
 			case "hello": {
-				const sessionId = msg.sessionId ?? state.players[msg.role].sessionId ?? crypto.randomUUID();
-				const userId = msg.userId ?? state.players[msg.role].userId ?? null;
-				const isGuest = msg.isGuest ?? state.players[msg.role].isGuest ?? !userId;
+				const slot = state.players[msg.role];
+				// Protección del rol: si el slot ya tiene sesión asignada, solo puede
+				// volver a entrar quien presente el mismo sessionId (reconexión).
+				if (slot.sessionId && msg.sessionId && msg.sessionId !== slot.sessionId) {
+					return this.send(ws, { kind: "error", message: "Ese rol ya está ocupado por otro jugador" });
+				}
+				if (slot.connected && !msg.sessionId) {
+					return this.send(ws, { kind: "error", message: "Ese rol ya está conectado" });
+				}
+				const sessionId = msg.sessionId ?? slot.sessionId ?? crypto.randomUUID();
+				// La identidad de cuenta la fijó el matchmaking (verificada por token);
+				// el hello no puede escalarla.
+				const userId = slot.userId ?? null;
+				const isGuest = slot.userId ? slot.isGuest : true;
 				ws.serializeAttachment({ role: msg.role, name: msg.name, sessionId, userId, isGuest } satisfies RoomAttachment);
-				state.players[msg.role].connected = true;
-				state.players[msg.role].name = msg.name;
-				state.players[msg.role].sessionId = sessionId;
-				state.players[msg.role].userId = userId;
-				state.players[msg.role].isGuest = isGuest;
+				slot.connected = true;
+				slot.name = msg.name;
+				slot.sessionId = sessionId;
+				slot.userId = userId;
+				slot.isGuest = isGuest;
 				if (state.phase === "lobby" && state.players.p1.connected && state.players.p2.connected) {
 					state.phase = "ready_check";
 				}
+				// Volvió alguien: cancelar la cuenta regresiva de abandono si estaba corriendo.
+				await this.ctx.storage.delete("graceUntil");
 				await this.setState(state);
 				await this.persistStart(state);
 				return this.broadcast(state);
@@ -184,12 +201,10 @@ export class BattleRoom extends DurableObject<Env> {
 			}
 
 			case "leave": {
-				state.phase = "aborted";
-				state.activeRole = null;
-				state.deadline = null;
+				// Si la batalla ya terminó, el veredicto queda intacto para el rival.
+				if (state.phase === "result" || state.phase === "aborted") return;
 				await this.ctx.storage.deleteAlarm();
-				await this.setState(state);
-				return this.broadcast(state);
+				return this.abort(state);
 			}
 		}
 	}
@@ -197,6 +212,27 @@ export class BattleRoom extends DurableObject<Env> {
 	async alarm(): Promise<void> {
 		const state = await this.getState();
 		if (!state) return;
+
+		// Batalla terminada: el alarm pendiente es el de limpieza del storage.
+		if (state.phase === "aborted" || (state.phase === "result" && state.verdict?.winner !== "draw")) {
+			await this.ctx.storage.deleteAll();
+			return;
+		}
+
+		// Sala esperando jugadores: si venció la gracia y alguien sigue
+		// desconectado, se aborta para no dejar al rival colgado.
+		if (state.phase === "lobby" || state.phase === "ready_check") {
+			const graceUntil = await this.ctx.storage.get<number>("graceUntil");
+			if (graceUntil && Date.now() >= graceUntil && (!state.players.p1.connected || !state.players.p2.connected)) {
+				return this.abort(state);
+			}
+			return;
+		}
+
+		// Si ambos se fueron en plena batalla, no tiene sentido seguir.
+		if (!state.players.p1.connected && !state.players.p2.connected) {
+			return this.abort(state);
+		}
 
 		if (state.phase === "countdown") {
 			return this.startTurn(state, 1, "p1");
@@ -213,6 +249,20 @@ export class BattleRoom extends DurableObject<Env> {
 		if (state.phase === "result" && state.verdict?.winner === "draw") {
 			return this.startReplica(state);
 		}
+	}
+
+	/** Aborta la batalla y agenda la limpieza del storage. */
+	private async abort(state: BattleState): Promise<void> {
+		state.phase = "aborted";
+		state.activeRole = null;
+		state.deadline = null;
+		await this.ctx.storage.delete("graceUntil");
+		await this.setState(state);
+		await this.ctx.storage.setAlarm(Date.now() + ROOM_CLEANUP_MS);
+		if (this.env.DB) {
+			await recordBattleAbort(this.env.DB, state.battleId).catch((error) => console.warn("recordBattleAbort failed", error));
+		}
+		return this.broadcast(state);
 	}
 
 	private async startTurn(state: BattleState, round: number, role: Role): Promise<void> {
@@ -260,6 +310,8 @@ export class BattleRoom extends DurableObject<Env> {
 		const elo = await this.persistResult(state);
 		if (elo && state.verdict) state.verdict = { ...state.verdict, elo };
 		await this.setState(state);
+		// La sala ya cumplió: limpiar su storage pasado el TTL.
+		await this.ctx.storage.setAlarm(Date.now() + ROOM_CLEANUP_MS);
 		return this.broadcast(state);
 	}
 
@@ -281,8 +333,27 @@ export class BattleRoom extends DurableObject<Env> {
 		if (!att) return;
 		const state = await this.getState();
 		if (!state) return;
-		state.players[att.role].connected = false;
+
+		// Reconexión: si otro socket vivo ya tiene este rol, no marcar desconectado.
+		const replaced = this.ctx.getWebSockets().some((other) => {
+			if (other === ws) return false;
+			const otherAtt = other.deserializeAttachment() as RoomAttachment | null;
+			return otherAtt?.role === att.role;
+		});
+		if (!replaced) state.players[att.role].connected = false;
 		await this.setState(state);
+
+		// En lobby/ready_check no hay alarm de turno corriendo: armar la cuenta
+		// regresiva de abandono. (En countdown/turn el alarm de turno ya chequea.)
+		if (
+			!replaced &&
+			(state.phase === "lobby" || state.phase === "ready_check") &&
+			(!state.players.p1.connected || !state.players.p2.connected)
+		) {
+			const graceUntil = Date.now() + DISCONNECT_GRACE_MS;
+			await this.ctx.storage.put("graceUntil", graceUntil);
+			await this.ctx.storage.setAlarm(graceUntil);
+		}
 		await this.broadcast(state);
 	}
 

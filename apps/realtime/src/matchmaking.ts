@@ -1,9 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
 import { pickBeat } from "@rap/db";
 import {
+	DEV_JWT_SECRET,
 	drawWords,
 	getModality,
+	getSynthBeat,
+	isSynthBeatId,
 	mmClientMessageSchema,
+	randomSynthBeat,
+	verifyRealtimeToken,
+	type Beat,
 	type PlayerIdentity,
 	type MmServerMessage,
 	type RoomInit,
@@ -49,6 +55,26 @@ function selectedBeatId(waiting: string | null, incoming: string | null): string
  * batalla, inicializa su Battle Room DO y avisa a ambos.
  */
 export class MatchmakingRoom extends DurableObject<Env> {
+	/**
+	 * Resuelve el beat de la batalla: synth explícito > beat de la DB >
+	 * synth aleatorio. Toda batalla sale con beat.
+	 */
+	private async resolveBeat(requestedId: string | null): Promise<Beat | null> {
+		if (isSynthBeatId(requestedId)) {
+			const found = getSynthBeat(requestedId!);
+			if (found) return found;
+		}
+		if (this.env.DB && requestedId && !isSynthBeatId(requestedId)) {
+			const fromDb = await pickBeat(this.env.DB, requestedId).catch(() => null);
+			if (fromDb) return fromDb;
+		}
+		if (this.env.DB && !requestedId) {
+			const fromDb = await pickBeat(this.env.DB, null).catch(() => null);
+			if (fromDb) return fromDb;
+		}
+		return randomSynthBeat();
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 
@@ -98,11 +124,29 @@ export class MatchmakingRoom extends DurableObject<Env> {
 		const identity = identityFromQueue(parsed);
 		const beatId = parsed.beatId ?? null;
 
-		// Buscar un rival en espera de la misma modalidad.
+		// Modo rankeado: el userId debe venir respaldado por un token firmado por
+		// la web. Sin token válido se juega como invitado (no mueve ELO).
+		if (identity.userId && !identity.isGuest) {
+			const secret = this.env.JWT_SECRET ?? DEV_JWT_SECRET;
+			const verified = parsed.authToken ? await verifyRealtimeToken(parsed.authToken, secret) : null;
+			if (verified !== identity.userId) {
+				identity.userId = null;
+				identity.isGuest = true;
+			}
+		}
+
+		// Buscar un rival en espera de la misma modalidad. Nunca emparejar a un
+		// jugador consigo mismo: ni misma sesión (dos pestañas) ni misma cuenta.
 		const peer = this.ctx.getWebSockets().find((other) => {
 			if (other === ws) return false;
 			const att = other.deserializeAttachment() as MmAttachment | null;
-			return att?.status === "waiting" && att.modality === modality && beatsCompatible(att.beatId, beatId);
+			return (
+				att?.status === "waiting" &&
+				att.modality === modality &&
+				att.sessionId !== identity.sessionId &&
+				(!att.userId || att.userId !== identity.userId) &&
+				beatsCompatible(att.beatId, beatId)
+			);
 		});
 
 		if (!peer) {
@@ -116,7 +160,7 @@ export class MatchmakingRoom extends DurableObject<Env> {
 		const words = mod.injectsWords
 			? drawWords(mod.wordCount, modality === "deconceptos" ? "concepts" : "words")
 			: [];
-		const beat = this.env.DB ? await pickBeat(this.env.DB, selectedBeatId(peerAtt.beatId, beatId)) : null;
+		const beat = await this.resolveBeat(selectedBeatId(peerAtt.beatId, beatId));
 		const battleId = crypto.randomUUID();
 
 		const init: RoomInit = {

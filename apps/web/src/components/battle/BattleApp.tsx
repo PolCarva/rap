@@ -1,7 +1,7 @@
 "use client";
 
 import type { ModalityId } from "@rap/shared";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BattleStage } from "./BattleStage";
 import { SearchingScreen } from "./SearchingScreen";
 import { SetupScreen } from "./SetupScreen";
@@ -16,8 +16,29 @@ export function BattleApp() {
 	const rapSession = useRapSession();
 	const [modality, setModality] = useState<ModalityId>("minuto-libre");
 	const { state } = engine;
+	const resumedRef = useRef(false);
 
-	if (state.view === "battle" && state.battle && state.myRole) {
+	// Tras un refresh, retomar la batalla activa si la había.
+	const { resume } = engine;
+	useEffect(() => {
+		if (resumedRef.current) return;
+		resumedRef.current = true;
+		resume();
+	}, [resume]);
+
+	if (state.view === "battle" && state.myRole) {
+		if (!state.battle) {
+			// Reanudando: todavía no llegó el snapshot de la sala.
+			return (
+				<div className="battle-phase">
+					<div className="arena-grain" />
+					<div className="arena-vignette" />
+					<div className="battle-radar"><div className="core" /></div>
+					<div className="battle-searching-title">RECONECTANDO<span className="red">…</span></div>
+					<button onClick={engine.leave} className="btn-ghost">SALIR</button>
+				</div>
+			);
+		}
 		return (
 			<BattleStage
 				battle={state.battle}
@@ -25,6 +46,7 @@ export function BattleApp() {
 				opponentCaption={state.opponentCaption}
 				media={media}
 				incomingSignal={state.incomingSignal}
+				reconnecting={state.reconnecting}
 				onReady={engine.sendReady}
 				onCaption={engine.sendCaption}
 				onSignal={engine.sendSignal}

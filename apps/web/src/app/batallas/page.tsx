@@ -1,6 +1,7 @@
 import { getRecentBattles, parseBattleWords } from "@/lib/data";
 import { AppNav } from "@/components/AppNav";
 import { MODALITIES, modalityIdSchema } from "@rap/shared";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -10,57 +11,76 @@ export default async function BattlesPage() {
 	return (
 		<main className="app-page-shell">
 			<AppNav status="HISTORIAL GLOBAL" />
-			<div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-				<h1 className="page-title">Batallas</h1>
-				<section className="grid gap-3">
-					{battles.length === 0 ? (
-						<p className="rounded-lg border border-white/10 bg-white/[0.03] px-5 py-10 text-center text-sm text-white/45">
-							Todavía no hay historial persistido.
-						</p>
-					) : (
-						battles.map((battle) => {
+			<div className="hx-shell">
+				<header className="hx-head">
+					<p className="hx-kicker">LO QUE PASÓ EN EL CUADRILÁTERO</p>
+					<h1 className="hx-title">
+						BATA<em>LLAS</em>
+					</h1>
+				</header>
+
+				{battles.length === 0 ? (
+					<section className="hx-empty">
+						<p>TODAVÍA NO HAY HISTORIAL</p>
+						<Link href="/arena" className="btn-arena" style={{ padding: "14px 36px", fontSize: 18 }}>
+							<span>ABRÍ LA CUENTA →</span>
+						</Link>
+					</section>
+				) : (
+					<section className="hx-list">
+						{battles.map((battle) => {
 							const words = parseBattleWords(battle);
-							const winner =
-								battle.winner === "draw"
-									? "Empate"
-									: battle.winner === "p1"
-										? battle.player1Name
-										: battle.winner === "p2"
-											? battle.player2Name
-											: "En curso";
 							const modality = modalityIdSchema.safeParse(battle.modality);
+							const modName = modality.success ? MODALITIES[modality.data].name : battle.modality;
+							const finished = battle.status === "finished" && battle.winner;
+							const aborted = battle.status === "aborted";
+							const winnerName =
+								battle.winner === "p1" ? battle.player1Name : battle.winner === "p2" ? battle.player2Name : null;
+
 							return (
-								<article key={battle.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
-									<div className="flex flex-wrap items-center justify-between gap-3">
-										<div>
-											<p className="text-xs uppercase text-fuchsia-300">
-												{modality.success ? MODALITIES[modality.data].name : battle.modality}
-											</p>
-											<h2 className="mt-1 text-lg font-black">
-												{battle.player1Name} <span className="text-white/25">vs</span> {battle.player2Name}
-											</h2>
-										</div>
-										<div className="text-right">
-											<p className="text-xs text-white/35">Ganador</p>
-											<p className="font-bold text-cyan-200">{winner}</p>
-										</div>
-									</div>
-									<div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-white/45">
-										<span>
-											Score {battle.scoreP1 ?? "-"} / {battle.scoreP2 ?? "-"}
+								<article key={battle.id} className={`hx-card${aborted ? " aborted" : ""}`}>
+									<div className="hx-card-top">
+										<span className="hx-mod">{modName.toUpperCase()}</span>
+										{battle.beatName && <span className="hx-beat">♪ {battle.beatName.toUpperCase()}</span>}
+										<span className={`hx-stamp${finished ? (battle.winner === "draw" ? " draw" : " win") : aborted ? " off" : " live"}`}>
+											{finished ? (battle.winner === "draw" ? "EMPATE" : "FINALIZADA") : aborted ? "ABANDONADA" : "EN CURSO"}
 										</span>
-										{battle.beatName && <span>Beat: {battle.beatName}</span>}
+									</div>
+									<div className="hx-card-main">
+										<span className={`hx-name${battle.winner === "p1" ? " winner" : ""}`}>
+											{battle.player1Name.toUpperCase()}
+										</span>
+										<span className="hx-score">
+											{battle.scoreP1 ?? "–"}
+											<i>/</i>
+											{battle.scoreP2 ?? "–"}
+										</span>
+										<span className={`hx-name right${battle.winner === "p2" ? " winner" : ""}`}>
+											{battle.player2Name.toUpperCase()}
+										</span>
+									</div>
+									<div className="hx-card-bottom">
+										{winnerName && battle.winner !== "draw" && (
+											<span className="hx-verdict">
+												GANÓ <b>{winnerName.toUpperCase()}</b>
+											</span>
+										)}
 										{words.map((word) => (
-											<span key={word} className="rounded border border-amber-300/30 px-2 py-0.5 text-amber-200/80">
+											<span key={word} className="hx-word">
 												{word}
 											</span>
 										))}
+										{battle.endedAt && (
+											<span className="hx-date">
+												{new Date(battle.endedAt).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
+											</span>
+										)}
 									</div>
 								</article>
 							);
-						})
-					)}
-				</section>
+						})}
+					</section>
+				)}
 			</div>
 		</main>
 	);

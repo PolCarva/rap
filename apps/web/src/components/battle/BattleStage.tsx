@@ -9,9 +9,15 @@ import {
 	type RtcSignal,
 	type Role,
 } from "@rap/shared";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CrowdReactions } from "@/components/CrowdReactions";
 import { PlayerPanel } from "./PlayerPanel";
+
+const JudgesScene = dynamic(() => import("@/components/three/JudgesScene").then((m) => m.JudgesScene), {
+	ssr: false,
+});
+import { useBeatPlayer } from "./useBeatPlayer";
 import { useChunkedTranscription } from "./useChunkedTranscription";
 import { useDeepgramTranscription } from "./useDeepgramTranscription";
 import type { MediaController } from "./useMediaStream";
@@ -23,6 +29,7 @@ interface Props {
 	opponentCaption: string;
 	media: MediaController;
 	incomingSignal: { role: Role; signal: RtcSignal; seq: number } | null;
+	reconnecting?: boolean;
 	onReady: () => void;
 	onCaption: (text: string) => void;
 	onSignal: (signal: RtcSignal) => void;
@@ -47,6 +54,7 @@ export function BattleStage({
 	opponentCaption,
 	media,
 	incomingSignal,
+	reconnecting,
 	onReady,
 	onCaption,
 	onSignal,
@@ -82,10 +90,8 @@ export function BattleStage({
 	const { ensureActive, stream } = media;
 	const [draft, setDraft] = useState("");
 	const [useChunkFallback, setUseChunkFallback] = useState(false);
-	const [beatBlocked, setBeatBlocked] = useState(false);
 	const handledTurn = useRef<string | null>(null);
 	const submittedTurn = useRef<string | null>(null);
-	const beatAudioRef = useRef<HTMLAudioElement | null>(null);
 	const localStream = stream.current;
 	const mediaEnabled =
 		!!localStream && battle.phase !== "lobby" && battle.phase !== "aborted" && battle.phase !== "result";
@@ -106,7 +112,16 @@ export function BattleStage({
 	const interim = useDeepgram ? dgInterim : "";
 	const recStart = useDeepgram ? dgStart : chunkStart;
 	const recStop = useDeepgram ? dgStop : chunkStop;
-	const liveText = `${transcript} ${interim}`.trim();
+	// Mic inutilizable (sin permiso, sin soporte o contexto inseguro): el MC
+	// nunca queda mudo — se abre el modo texto como respaldo.
+	const micBlocked =
+		!recSupported ||
+		!recSecure ||
+		recError === "not-allowed" ||
+		recError === "insecure" ||
+		recError === "unsupported";
+	// Caption en vivo: borrador (texto preservado/tipeado) + voz transcripta.
+	const liveText = [draft.trim(), transcript, interim].filter(Boolean).join(" ").trim();
 	const turnKey = `${battle.battleId}:${battle.replicaCount}:${battle.round}:${battle.activeRole ?? "none"}`;
 
 	useEffect(() => {
@@ -128,10 +143,25 @@ export function BattleStage({
 		if (recSupported && recSecure) activateMic();
 	}, [isMyTurn, turnKey, recSupported, recSecure, activateMic]);
 
+	// Deepgram se cayó a mitad de MI turno: preservar lo ya transcripto en el
+	// borrador y arrancar el grabador de respaldo sin perder el turno.
+	const fallbackHandled = useRef<string | null>(null);
+	useEffect(() => {
+		if (!useChunkFallback || !isMyTurn) return;
+		if (fallbackHandled.current === turnKey) return;
+		fallbackHandled.current = turnKey;
+		if (dgTranscript) setDraft((d) => [d.trim(), dgTranscript].filter(Boolean).join(" "));
+		if (chunkSupported && chunkSecure && !chunkListening) {
+			chunkStart((full) => onCaption(full));
+		}
+	}, [useChunkFallback, isMyTurn, turnKey, dgTranscript, chunkSupported, chunkSecure, chunkListening, chunkStart, onCaption]);
+
 	const submit = useCallback(() => {
 		if (submittedTurn.current === turnKey) return;
 		submittedTurn.current = turnKey;
-		const text = recSupported ? recStop() : draft;
+		// Combinar lo transcripto por voz con lo tipeado (modo respaldo).
+		const voice = recSupported ? recStop() : "";
+		const text = [voice, draft.trim()].filter(Boolean).join(" ").trim();
 		onSubmitVerse(text);
 		setDraft("");
 	}, [turnKey, recSupported, recStop, draft, onSubmitVerse]);
@@ -155,28 +185,16 @@ export function BattleStage({
 
 	const mod = MODALITIES[battle.modality];
 	const beatIsActive = Boolean(battle.beat?.audioUrl && (battle.phase === "countdown" || battle.phase === "turn"));
-
-	const playBeat = useCallback(() => {
-		const audio = beatAudioRef.current;
-		if (!audio) return;
-		audio.volume = 0.38;
-		audio.loop = true;
-		audio.play().then(
-			() => setBeatBlocked(false),
-			() => setBeatBlocked(true),
-		);
-	}, []);
+	const beatPlayer = useBeatPlayer();
+	const { play: playBeatTrack, stop: stopBeatTrack } = beatPlayer;
 
 	useEffect(() => {
-		const audio = beatAudioRef.current;
-		if (!audio) return;
-		if (beatIsActive) {
-			playBeat();
+		if (beatIsActive && battle.beat) {
+			void playBeatTrack(battle.beat, 0.35);
 		} else {
-			audio.pause();
-			setBeatBlocked(false);
+			stopBeatTrack();
 		}
-	}, [beatIsActive, battle.beat?.audioUrl, playBeat]);
+	}, [beatIsActive, battle.beat, playBeatTrack, stopBeatTrack]);
 
 	// Result phase
 	if (battle.phase === "result" && battle.verdict) {
@@ -246,8 +264,12 @@ export function BattleStage({
 	return (
 		<>
 			{/* ===== BATTLE ARENA ===== */}
-			<div className="battle-arena">
-				{battle.beat?.audioUrl && <audio ref={beatAudioRef} src={battle.beat.audioUrl} preload="auto" loop />}
+			<div
+				className={`battle-arena${beatIsActive ? " grooving" : ""}`}
+				style={{ "--beat-period": `${(60 / (battle.beat?.bpm ?? 90)).toFixed(3)}s` } as React.CSSProperties}
+			>
+				{/* Flash al cambiar de turno */}
+				{battle.phase === "turn" && <div key={turnKey} className="turn-flash" />}
 				{/* Me */}
 				<PlayerPanel
 					player={me}
@@ -305,8 +327,8 @@ export function BattleStage({
 						<div className="turn-beat">
 							BEAT: {battle.beat.name.toUpperCase()}
 							{battle.beat.bpm ? ` · ${battle.beat.bpm} BPM` : ""}
-							{beatBlocked && (
-								<button onClick={playBeat} type="button">
+							{beatPlayer.blocked && (
+								<button onClick={beatPlayer.unlock} type="button">
 									ACTIVAR
 								</button>
 							)}
@@ -322,19 +344,37 @@ export function BattleStage({
 					</div>
 				)}
 
-				{/* Countdown overlay */}
+				{/* Countdown overlay: cada tick entra con un punch */}
 				{battle.phase === "countdown" && (
 					<div className="battle-countdown">
-						<div className="battle-countdown-num">
+						<div key={remaining ?? "ya"} className="battle-countdown-num punch">
 							{remaining !== null && remaining > 0 ? remaining : "¡YA!"}
 						</div>
 					</div>
 				)}
 
+				{/* Conexión: avisos no bloqueantes */}
+				{(reconnecting || !opp.connected) && (
+					<div className="conn-banner">
+						<span className="arena-live-dot" style={{ margin: 0 }} />
+						{reconnecting ? "RECONECTANDO CON LA SALA…" : "EL RIVAL PERDIÓ CONEXIÓN — ESPERANDO…"}
+					</div>
+				)}
+
+				{/* Juicio: interstitial dramático mientras delibera la IA */}
+				{battle.phase === "judging" && (
+					<div className="judging-overlay">
+						<div className="judging-scales">⚖</div>
+						<div className="judging-title">EL JURADO DELIBERA</div>
+						<div className="judging-sub">ANALIZANDO FLOW · RIMAS · PUNCHLINES</div>
+						<div className="judging-bar"><span /></div>
+					</div>
+				)}
+
 				{/* Controls for my turn */}
 				{battle.phase === "turn" && isMyTurn && (
-					<div className="fighter-controls" style={{ left: "0%", right: "50%", bottom: 20 }}>
-						{recSupported && recSecure ? (
+					<div className="fighter-controls mine">
+						{!micBlocked ? (
 							<>
 								{(!listening || recError) && (
 									<button
@@ -357,6 +397,15 @@ export function BattleStage({
 							</>
 						) : (
 							<>
+								{recSupported && recSecure && (
+									<button
+										onClick={activateMic}
+										className="btn-ghost"
+										style={{ fontSize: 11, padding: "10px 18px" }}
+									>
+										⚠ REINTENTAR MIC
+									</button>
+								)}
 								<button onClick={submit} className="btn-arena" style={{ fontSize: 14, padding: "10px 24px" }}>
 									<span>ENVIAR VERSO</span>
 								</button>
@@ -365,9 +414,12 @@ export function BattleStage({
 					</div>
 				)}
 
-				{/* Text input fallback on my turn */}
-				{battle.phase === "turn" && isMyTurn && (!recSupported || !recSecure) && (
-					<div style={{ position: "absolute", bottom: 70, left: 0, right: "50%", zIndex: 15, padding: "0 18px" }}>
+				{/* Text input fallback on my turn (mic bloqueado o sin soporte) */}
+				{battle.phase === "turn" && isMyTurn && micBlocked && (
+					<div className="verse-draft-zone">
+						<div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--red)", marginBottom: 6 }}>
+							{recError === "not-allowed" ? "MIC SIN PERMISO — MODO TEXTO" : "MODO TEXTO"}
+						</div>
 						<textarea
 							autoFocus
 							value={draft}
@@ -424,10 +476,21 @@ function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole
 				{stage === "suspense" ? "EL JURADO DELIBERA" : voteLine}
 			</div>
 
-			<div className={`judge-row stage-${stage}`}>
-				{v.judges.map((judge, index) => (
-					<JudgeCard key={judge.judge} vote={judge.vote} delay={index * 220} />
-				))}
+			<div className={`judge-zone stage-${stage}`}>
+				<JudgesScene votes={v.judges} stage={stage} />
+				<div className="judge-vote-labels">
+					{v.judges.map((judge) => {
+						const label =
+							judge.vote === "replica"
+								? "RÉPLICA"
+								: (battle.players[judge.vote].name || judge.vote).toUpperCase();
+						return (
+							<span key={judge.judge} className={`judge-vote-label vote-${judge.vote}${stage !== "suspense" ? " shown" : ""}`}>
+								{stage === "suspense" ? "…" : label}
+							</span>
+						);
+					})}
+				</div>
 			</div>
 
 			<div className={`winner-name result-title stage-${stage}`} style={{ color: draw || youWon ? "var(--red)" : "var(--bone-dim)" }}>
@@ -458,13 +521,16 @@ function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole
 			))}
 
 			{stage === "final" && !draw && (
-				<div className={`elo-impact${v.elo?.ranked ? " ranked" : ""}`}>
-					{v.elo?.ranked && myElo ? (
+				v.elo?.ranked && myElo && myElo.before !== null && myElo.after !== null ? (
+					<div className={`elo-stage ${myElo.delta >= 0 ? "up" : "down"}`}>
+						<span className="elo-stage-label">TU ELO</span>
 						<AnimatedElo before={myElo.before} after={myElo.after} delta={myElo.delta} />
-					) : (
-						<span>{v.elo?.reason ?? "ELO no disponible"}</span>
-					)}
-				</div>
+					</div>
+				) : (
+					<div className="elo-impact">
+						<span>{v.elo?.reason ?? "Batalla no rankeada: entrá con tu cuenta para mover ELO"}</span>
+					</div>
+				)
 			)}
 
 			{stage === "final" && draw && <div className="replica-note">LA SALA ARRANCA DE NUEVO</div>}
@@ -488,46 +554,40 @@ function ResultScreen({ battle, myRole, onLeave }: { battle: BattleState; myRole
 	);
 }
 
-function JudgeCard({ vote, delay }: { vote: Role | "replica"; delay: number }) {
-	const label = vote === "replica" ? "RÉPLICA" : vote === "p1" ? "MC IZQ" : "MC DER";
-	return (
-		<div className={`judge-card vote-${vote}`} style={{ animationDelay: `${delay}ms` }}>
-			<div className="judge-body">
-				<span className="judge-head" />
-				<span className="judge-arm left" />
-				<span className="judge-arm right" />
-			</div>
-			<div className="judge-label">{label}</div>
-		</div>
-	);
-}
+function AnimatedElo({ before, after, delta }: { before: number; after: number; delta: number }) {
+	const [value, setValue] = useState(before);
+	const [done, setDone] = useState(false);
 
-function AnimatedElo({ before, after, delta }: { before: number | null; after: number | null; delta: number }) {
-	const [value, setValue] = useState(before ?? after ?? 0);
-
+	// Conteo con ease-out + ligera demora dramática antes de arrancar.
 	useEffect(() => {
-		if (before === null || after === null) return;
-		const steps = 18;
-		let current = 0;
-		const id = setInterval(() => {
-			current += 1;
-			const t = current / steps;
-			setValue(Math.round(before + (after - before) * t));
-			if (current >= steps) clearInterval(id);
-		}, 38);
-		return () => clearInterval(id);
+		const DELAY = 600;
+		const DURATION = 1700;
+		let raf = 0;
+		const t0 = performance.now();
+		const tick = (now: number) => {
+			const elapsed = now - t0 - DELAY;
+			if (elapsed < 0) {
+				raf = requestAnimationFrame(tick);
+				return;
+			}
+			const p = Math.min(1, elapsed / DURATION);
+			const eased = 1 - Math.pow(1 - p, 3);
+			setValue(Math.round(before + (after - before) * eased));
+			if (p < 1) raf = requestAnimationFrame(tick);
+			else setDone(true);
+		};
+		raf = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(raf);
 	}, [before, after]);
 
-	if (before === null || after === null) return null;
 	return (
-		<>
-			<span className="elo-before">{before}</span>
-			<span className={`elo-delta${delta >= 0 ? " plus" : " minus"}`}>
-				{delta >= 0 ? "+" : ""}
+		<div className="elo-counter">
+			<span className={`elo-big${done ? " done" : ""}`}>{value}</span>
+			<span className={`elo-delta-badge${delta >= 0 ? " plus" : " minus"}`}>
+				{delta >= 0 ? "▲ +" : "▼ "}
 				{delta}
 			</span>
-			<span className="elo-after">{value}</span>
-		</>
+		</div>
 	);
 }
 
@@ -544,33 +604,31 @@ function PlayerScore({
 }) {
 	return (
 		<div>
-			<div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
-				<span style={{ fontFamily: "var(--font-display)", fontSize: 20, textTransform: "uppercase", color: highlight ? "var(--red)" : "var(--bone)" }}>{name}</span>
-				<span style={{ fontFamily: "var(--font-display)", fontSize: 36, color: highlight ? "var(--red)" : "var(--bone)" }}>{total}</span>
+			<div className={`crit-head${highlight ? " hl" : ""}`}>
+				<span className="crit-name">{name}</span>
+				<span className="crit-total">{total}</span>
 			</div>
-			<div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-				{CRITERIA.map((c) => {
+			<div className="crit-list">
+				{CRITERIA.map((c, index) => {
 					const val = pv.criteria[c];
 					return (
-						<div key={c} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-							<span style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--bone-dim)", width: 56, flexShrink: 0 }}>{CRITERIA_LABELS[c]}</span>
+						<div key={c} className="crit-row">
+							<span className="crit-label">{CRITERIA_LABELS[c]}</span>
 							{val === null ? (
-								<span style={{ color: "var(--line)" }}>—</span>
+								<span className="crit-na">—</span>
 							) : (
 								<>
-									<div style={{ flex: 1, height: 4, background: "var(--ink-3)", border: "1px solid var(--line)", overflow: "hidden" }}>
-										<div style={{ height: "100%", background: "var(--red)", width: `${val * 10}%`, boxShadow: "0 0 6px rgba(232,25,44,0.5)" }} />
+									<div className="crit-bar">
+										<span style={{ width: `${val * 10}%`, animationDelay: `${300 + index * 110}ms` }} />
 									</div>
-									<span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--bone-dim)", width: 20, textAlign: "right" }}>{val}</span>
+									<span className="crit-val">{val}</span>
 								</>
 							)}
 						</div>
 					);
 				})}
 			</div>
-			{pv.comment && (
-				<p style={{ marginTop: 10, fontFamily: "var(--font-body)", fontSize: 12, fontStyle: "italic", color: "var(--bone-dim)", lineHeight: 1.4 }}>{pv.comment}</p>
-			)}
+			{pv.comment && <p className="crit-comment">{pv.comment}</p>}
 		</div>
 	);
 }

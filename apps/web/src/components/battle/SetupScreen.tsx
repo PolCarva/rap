@@ -1,8 +1,9 @@
 "use client";
 
-import { MODALITIES, MODALITY_IDS, type Beat, type ModalityId } from "@rap/shared";
+import { MODALITIES, MODALITY_IDS, SYNTH_BEATS, type Beat, type ModalityId } from "@rap/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePlayerCounts } from "@/components/usePlayerCounts";
+import { useBeatPlayer } from "./useBeatPlayer";
 import type { MediaController } from "./useMediaStream";
 import type { RapSession } from "./useRapSession";
 
@@ -30,6 +31,7 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 	const [beats, setBeats] = useState<Beat[]>([]);
 	const [beatId, setBeatId] = useState<string>("random");
 	const [beatState, setBeatState] = useState<"loading" | "ready" | "empty">("loading");
+	const beatPreview = useBeatPlayer();
 	const [asGuest, setAsGuest] = useState(session.isGuest);
 	const [accountAka, setAccountAka] = useState(session.isGuest ? "" : session.name);
 	const [guestAka, setGuestAka] = useState(session.isGuest ? session.name : "");
@@ -69,11 +71,19 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 	const currentAka = asGuest ? guestAka : accountAka;
 	const canUseAccount = isLoggedIn && !asGuest;
 	const canEnter = currentAka.trim().length > 0;
-	const selectedBeat = useMemo(() => beats.find((beat) => beat.id === beatId) ?? null, [beats, beatId]);
+	// Beats de la DB (backoffice) + los sintetizados de la casa: siempre hay pista.
+	const allBeats = useMemo(() => [...beats, ...SYNTH_BEATS], [beats]);
+	const selectedBeat = useMemo(() => allBeats.find((beat) => beat.id === beatId) ?? null, [allBeats, beatId]);
+
+	const togglePreview = (beat: Beat) => {
+		if (beatPreview.playing === beat.id) beatPreview.stop();
+		else void beatPreview.play(beat, 0.5);
+	};
 
 	const handleSearch = () => {
 		const name = currentAka.trim();
 		const selectedBeatId = beatId === "random" ? null : beatId;
+		beatPreview.stop();
 		if (!canEnter) return;
 		if (canUseAccount) {
 			onSearch({ isGuest: false, name, email: session.email }, modality, selectedBeatId);
@@ -183,17 +193,43 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 					<h2 className="config-step-title">Beat</h2>
 					<div className="config-step-hint">La pista elegida suena en los turnos de ambos MCs</div>
 					<div className="beat-grid">
-						<button className={`beat-card${beatId === "random" ? " sel" : ""}`} onClick={() => setBeatId("random")}>
+						<div
+							role="button"
+							tabIndex={0}
+							className={`beat-card${beatId === "random" ? " sel" : ""}`}
+							onClick={() => setBeatId("random")}
+							onKeyDown={(e) => e.key === "Enter" && setBeatId("random")}
+						>
 							<div className="beat-card-name">Random</div>
-							<div className="beat-card-meta">{beatState === "loading" ? "CARGANDO LISTA" : beats.length ? `${beats.length} ACTIVOS` : "SIN BEATS ACTIVOS"}</div>
-						</button>
-						{beats.map((beat) => (
-							<button key={beat.id} className={`beat-card${beatId === beat.id ? " sel" : ""}`} onClick={() => setBeatId(beat.id)}>
+							<div className="beat-card-meta">
+								{beatState === "loading" ? "CARGANDO LISTA" : `${allBeats.length} BEATS EN ROTACIÓN`}
+							</div>
+						</div>
+						{allBeats.map((beat) => (
+							<div
+								role="button"
+								tabIndex={0}
+								key={beat.id}
+								className={`beat-card${beatId === beat.id ? " sel" : ""}`}
+								onClick={() => setBeatId(beat.id)}
+								onKeyDown={(e) => e.key === "Enter" && setBeatId(beat.id)}
+							>
 								<div className="beat-card-name">{beat.name}</div>
 								<div className="beat-card-meta">
 									{beat.producer ?? "BACKOFFICE"} {beat.bpm ? `· ${beat.bpm} BPM` : ""}
 								</div>
-							</button>
+								<button
+									type="button"
+									className={`beat-preview-btn${beatPreview.playing === beat.id ? " on" : ""}`}
+									aria-label={beatPreview.playing === beat.id ? "Parar preescucha" : "Preescuchar beat"}
+									onClick={(e) => {
+										e.stopPropagation();
+										togglePreview(beat);
+									}}
+								>
+									{beatPreview.playing === beat.id ? "■" : "▶"}
+								</button>
+							</div>
 						))}
 					</div>
 				</div>

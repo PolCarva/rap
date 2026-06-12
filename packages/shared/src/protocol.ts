@@ -13,12 +13,12 @@ export const playerIdentitySchema = z.object({
 });
 export type PlayerIdentity = z.infer<typeof playerIdentitySchema>;
 
-/** Beat reproducido durante los turnos. Lo administra el backoffice. */
+/** Beat reproducido durante los turnos. Del backoffice (URL) o sintetizado (`synth:<estilo>`). */
 export const beatSchema = z.object({
 	id: z.string().min(1).max(80),
 	name: z.string().min(1).max(80),
 	producer: z.string().max(80).nullable().default(null),
-	audioUrl: z.string().url(),
+	audioUrl: z.union([z.string().url(), z.string().regex(/^synth:[a-z0-9-]+$/)]),
 	bpm: z.number().int().min(40).max(220).nullable().default(null),
 	isActive: z.boolean().default(true),
 });
@@ -49,6 +49,8 @@ export const mmClientMessageSchema = z.discriminatedUnion("kind", [
 		sessionId: z.string().min(1).max(80).optional(),
 		userId: z.string().min(1).max(80).nullable().optional(),
 		isGuest: z.boolean().optional(),
+		/** Token firmado por la web que respalda el userId (modo rankeado). */
+		authToken: z.string().max(600).nullable().optional(),
 	}),
 	z.object({ kind: z.literal("cancel") }),
 ]);

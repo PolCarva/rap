@@ -9,6 +9,8 @@ export interface Env {
 	DEEPGRAM_API_KEY?: string;
 	/** Secret: API key de OpenRouter para el juez IA. */
 	OPENROUTER_API_KEY?: string;
+	/** Secret compartido con apps/web para verificar tokens de identidad. */
+	JWT_SECRET?: string;
 	/** Modelo del juez en OpenRouter (default: openai/gpt-4o). */
 	OPENROUTER_JUDGE_MODEL?: string;
 }
