@@ -26,8 +26,8 @@ const TransitionContext = createContext<{ navigate: (href: string) => void; phas
 	phase: "idle",
 });
 
-const LEAVE_MS = 520;
-const ENTER_MS = 700;
+const LEAVE_MS = 750;
+const ENTER_MS = 750;
 const SLATS = 5;
 
 export function PageTransitionProvider({ children }: { children: ReactNode }) {

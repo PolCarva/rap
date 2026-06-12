@@ -45,9 +45,10 @@ function buildArm(material: THREE.Material, side: 1 | -1): THREE.Group {
 }
 
 function buildJudge(accent: THREE.Material): JudgeRig {
-	const hoodie = new THREE.MeshStandardMaterial({ color: 0x23232c, roughness: 0.85, metalness: 0.08 });
-	const skin = new THREE.MeshStandardMaterial({ color: 0x6b5747, roughness: 0.7, metalness: 0 });
-	const capMat = new THREE.MeshStandardMaterial({ color: 0x141419, roughness: 0.6, metalness: 0.15 });
+	// Materiales más claros que el fondo: el rim rojo + key cenital los recortan.
+	const hoodie = new THREE.MeshStandardMaterial({ color: 0x3c3c49, roughness: 0.75, metalness: 0.1 });
+	const skin = new THREE.MeshStandardMaterial({ color: 0x9a7a5d, roughness: 0.65, metalness: 0 });
+	const capMat = new THREE.MeshStandardMaterial({ color: 0x86101e, roughness: 0.55, metalness: 0.1 });
 
 	const group = new THREE.Group();
 
@@ -60,21 +61,27 @@ function buildJudge(accent: THREE.Material): JudgeRig {
 	shoulders.scale.set(1.25, 0.7, 1);
 	group.add(shoulders);
 
-	// Cabeza: cráneo + gorra con visera.
+	// Cabeza: cráneo visible + gorra plana (snapback) con visera larga al frente.
 	const head = new THREE.Group();
 	const skull = new THREE.Mesh(new THREE.SphereGeometry(0.27, 18, 14), skin);
 	head.add(skull);
-	const cap = new THREE.Mesh(new THREE.SphereGeometry(0.285, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2.1), capMat);
-	cap.position.y = 0.045;
-	head.add(cap);
-	const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.24, 0.035, 14, 1, false, -Math.PI / 2.4, Math.PI / 1.2), capMat);
-	brim.position.set(0, 0.075, 0.2);
+	// Corona de la gorra: casquete chato y levemente inclinado hacia atrás,
+	// dejando ver frente y orejas (que no parezca casco).
+	const crown = new THREE.Mesh(new THREE.SphereGeometry(0.265, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2.4), capMat);
+	crown.position.y = 0.09;
+	crown.scale.set(1.05, 0.82, 1.05);
+	crown.rotation.x = -0.08;
+	head.add(crown);
+	// Visera: disco elíptico fino proyectado hacia adelante, caída hacia abajo.
+	const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.025, 18), capMat);
+	brim.scale.set(1, 1, 1.55);
+	brim.position.set(0, 0.13, 0.3);
+	brim.rotation.x = -0.14;
 	head.add(brim);
-	// Banda roja de la gorra
-	const band = new THREE.Mesh(new THREE.TorusGeometry(0.272, 0.02, 8, 24), accent);
-	band.rotation.x = Math.PI / 2;
-	band.position.y = 0.06;
-	head.add(band);
+	// Botón superior rojo (detalle snapback).
+	const button = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), accent);
+	button.position.y = 0.3;
+	head.add(button);
 	head.position.y = 0.22;
 	group.add(head);
 
@@ -118,15 +125,15 @@ export function JudgesScene({ votes, stage }: Props) {
 		mount.appendChild(renderer.domElement);
 
 		// Luces: key fría cenital + rims rojos laterales (lenguaje de la arena).
-		scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-		const key = new THREE.SpotLight(0xfff2dc, 130, 30, Math.PI / 4, 0.6, 1.5);
+		scene.add(new THREE.AmbientLight(0xffffff, 0.68));
+		const key = new THREE.SpotLight(0xfff2dc, 200, 30, Math.PI / 4, 0.6, 1.5);
 		key.position.set(0, 6, 5);
 		scene.add(key);
-		const rimL = new THREE.PointLight(0xe8192c, 26, 14, 1.8);
-		rimL.position.set(-4.2, 1.2, -1.5);
+		const rimL = new THREE.PointLight(0xe8192c, 55, 16, 1.7);
+		rimL.position.set(-4.2, 1.4, -1.8);
 		scene.add(rimL);
-		const rimR = new THREE.PointLight(0xe8192c, 26, 14, 1.8);
-		rimR.position.set(4.2, 1.2, -1.5);
+		const rimR = new THREE.PointLight(0xe8192c, 55, 16, 1.7);
+		rimR.position.set(4.2, 1.4, -1.8);
 		scene.add(rimR);
 
 		const accent = new THREE.MeshStandardMaterial({

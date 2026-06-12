@@ -2062,6 +2062,34 @@ body {
 	font-size: 12px;
 }
 
+/* Desktop ancho: composición editorial asimétrica — texto a la izquierda,
+   el micrófono 3D protagonista en el tercio derecho. */
+@media (min-width: 1000px) and (min-aspect-ratio: 23/20) {
+	.cine-hero {
+		justify-content: flex-start;
+	}
+
+	.cine-hero-content {
+		align-items: flex-start;
+		text-align: left;
+		padding-left: clamp(48px, 7vw, 140px);
+		max-width: min(56vw, 880px);
+	}
+
+	.cine-title {
+		font-size: clamp(80px, 13.5vw, 210px);
+	}
+
+	.cine-cta-row {
+		justify-content: flex-start;
+	}
+
+	.cine-hero .cine-scroll-hint {
+		left: clamp(48px, 7vw, 140px);
+		transform: none;
+	}
+}
+
 .cine-scroll-hint {
 	position: absolute;
 	bottom: 56px;
@@ -2670,8 +2698,20 @@ a.rk-row:hover {
 }
 
 .judges-scene {
+	position: relative;
 	width: 100%;
 	height: clamp(180px, 26vh, 250px);
+}
+
+/* Halo de escenario detrás del jurado: separa las figuras del fondo negro. */
+.judges-scene::before {
+	content: "";
+	position: absolute;
+	inset: -8% -4%;
+	background:
+		radial-gradient(ellipse 58% 72% at 50% 46%, rgba(232, 25, 44, 0.22), transparent 70%),
+		radial-gradient(ellipse 80% 50% at 50% 96%, rgba(232, 25, 44, 0.12), transparent 75%);
+	pointer-events: none;
 }
 
 .judges-scene canvas {

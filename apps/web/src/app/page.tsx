@@ -194,7 +194,7 @@ export default function Home() {
 				<Reveal className="cine-section-head">
 					<p className="cine-kicker">DEL SOFÁ AL ESCENARIO</p>
 					<h2 className="cine-h2">
-						ASÍ SE <em>PELEA</em>
+						ASÍ SE <em>BATALLA</em>
 					</h2>
 				</Reveal>
 				<div className="cine-steps">

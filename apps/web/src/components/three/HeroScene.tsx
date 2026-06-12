@@ -56,8 +56,8 @@ export function HeroScene() {
 		// ---- Micrófono (grupo) ----
 		const mic = new THREE.Group();
 
-		const metal = new THREE.MeshStandardMaterial({ color: 0x3a3a44, metalness: 0.85, roughness: 0.3 });
-		const darkMetal = new THREE.MeshStandardMaterial({ color: 0x1c1c24, metalness: 0.8, roughness: 0.45 });
+		const metal = new THREE.MeshStandardMaterial({ color: 0x4a4a56, metalness: 0.85, roughness: 0.28 });
+		const darkMetal = new THREE.MeshStandardMaterial({ color: 0x26262e, metalness: 0.8, roughness: 0.45 });
 
 		// Cabeza: esfera + malla wireframe por encima (rejilla)
 		const headCore = new THREE.Mesh(new THREE.SphereGeometry(1.05, 32, 24), metal);
@@ -67,7 +67,8 @@ export function HeroScene() {
 		const grill = new THREE.Mesh(
 			new THREE.SphereGeometry(1.08, 28, 20),
 			new THREE.MeshStandardMaterial({
-				color: 0x55555f,
+				color: 0x8a8a98,
+				emissive: 0x1c1c22,
 				metalness: 0.9,
 				roughness: 0.25,
 				wireframe: true,
@@ -101,9 +102,48 @@ export function HeroScene() {
 		mic.add(base);
 
 		mic.position.y = 0.45;
-		mic.rotation.z = 0.16;
+		mic.rotation.z = 0.22;
 		mic.scale.setScalar(0.92);
 		scene.add(mic);
+
+		// Halo cálido detrás del mic: lo recorta en silueta contra el fondo negro
+		// (textura radial generada en canvas, blending aditivo).
+		const haloCanvas = document.createElement("canvas");
+		haloCanvas.width = haloCanvas.height = 256;
+		const hctx = haloCanvas.getContext("2d")!;
+		const grad = hctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+		grad.addColorStop(0, "rgba(232, 25, 44, 0.85)");
+		grad.addColorStop(0.35, "rgba(232, 25, 44, 0.32)");
+		grad.addColorStop(1, "rgba(232, 25, 44, 0)");
+		hctx.fillStyle = grad;
+		hctx.fillRect(0, 0, 256, 256);
+		const halo = new THREE.Sprite(
+			new THREE.SpriteMaterial({
+				map: new THREE.CanvasTexture(haloCanvas),
+				blending: THREE.AdditiveBlending,
+				depthWrite: false,
+				transparent: true,
+				opacity: 0.8,
+			}),
+		);
+		halo.scale.setScalar(9.5);
+		halo.position.set(0, 0.7, -2.2);
+		scene.add(halo);
+
+		// Composición responsive: en pantallas anchas el mic vive en el tercio
+		// derecho (la tipografía va a la izquierda); en angostas, centrado detrás.
+		const micTarget = { x: 0, scale: 0.92 };
+		const updateComposition = () => {
+			const aspect = mount.clientWidth / Math.max(1, mount.clientHeight);
+			if (aspect >= 1.15) {
+				micTarget.x = 2.6;
+				micTarget.scale = 1.05;
+			} else {
+				micTarget.x = 0;
+				micTarget.scale = 0.8;
+			}
+		};
+		updateComposition();
 
 		// ---- Piso: doble grilla corriendo hacia la cámara ----
 		const gridA = new THREE.GridHelper(60, 60, 0xe8192c, 0x1a1a20);
@@ -155,6 +195,7 @@ export function HeroScene() {
 			camera.aspect = w / h;
 			camera.updateProjectionMatrix();
 			renderer.setSize(w, h, false);
+			updateComposition();
 		};
 		resize();
 		const ro = new ResizeObserver(resize);
@@ -168,11 +209,20 @@ export function HeroScene() {
 		const render = () => {
 			const t = (performance.now() - start) / 1000;
 
+			// Deslizamiento suave hacia la composición objetivo (centro o derecha).
+			mic.position.x += (micTarget.x - mic.position.x) * 0.04;
+			const s = mic.scale.x + (micTarget.scale - mic.scale.x) * 0.04;
+			mic.scale.setScalar(s);
+			halo.position.x = mic.position.x;
+			rim.position.x = -3.2 + mic.position.x;
+			rim2.position.x = 3.4 + mic.position.x * 0.6;
+
 			if (!reduced) {
 				mic.position.y = 0.6 + Math.sin(t * 0.9) * 0.16;
 				mic.rotation.y = t * 0.24;
-				mic.rotation.z = 0.16 + Math.sin(t * 0.5) * 0.045;
+				mic.rotation.z = 0.22 + Math.sin(t * 0.5) * 0.05;
 				ring.rotation.z = t * 0.6;
+				halo.material.opacity = 0.7 + Math.sin(t * 2.2) * 0.12;
 
 				// La grilla corre hacia la cámara en loop perfecto.
 				const offset = (t * SPEED) % 60;
@@ -192,10 +242,10 @@ export function HeroScene() {
 				rim.intensity = 90 + Math.sin(t * 2.2) * 26;
 			}
 
-			// Cámara con parallax suave
+			// Cámara con parallax suave, mirando entre el texto y el mic.
 			camera.position.x += (mx * 1.5 - camera.position.x) * 0.04;
 			camera.position.y += (1.1 + my * -0.8 - camera.position.y) * 0.04;
-			camera.lookAt(0, 0.7, 0);
+			camera.lookAt(mic.position.x * 0.3, 0.7, 0);
 
 			renderer.render(scene, camera);
 			raf = requestAnimationFrame(render);
