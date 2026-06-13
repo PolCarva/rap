@@ -98,6 +98,9 @@ cd ../web
 npx wrangler secret put JWT_SECRET
 npx wrangler secret put BACKOFFICE_PASSWORD
 
+# Storage para beats subidos desde /backoffice
+npx wrangler r2 bucket create rap-beat-uploads
+
 # Migraciones remotas
 cd ../realtime && npx wrangler d1 migrations apply rap-db --remote
 
@@ -116,7 +119,8 @@ worker realtime desplegado (esquema `wss://`).
   worker realtime: sin token válido la batalla no mueve ELO.
 - Audio/video remoto: WebRTC peer-to-peer con señalización por Battle Room.
 - Beats: 6 pistas sintetizadas con WebAudio (siempre disponibles, BPM exacto)
-  + beats por URL desde el backoffice (`/backoffice`, con detección de BPM).
+  + beats por URL, links de SoundCloud o MP3 subido a R2 desde el backoffice
+  (`/backoffice`, con detección de BPM para URLs de audio directas).
 - Reconexión: la batalla activa se retoma tras un refresh (sessionStorage +
   re-hello con el mismo sessionId); desconexiones tienen 45s de gracia.
 - Persistencia: usuarios, batallas (incl. abortadas), turnos, veredictos,

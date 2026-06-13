@@ -1,6 +1,7 @@
 "use client";
 
 import { synthStyleOf, type Beat, type SynthStyle } from "@rap/shared";
+import { isSoundCloudUrl } from "@/lib/bpm";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
@@ -8,10 +9,126 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * - `synth:<estilo>`: batería + bajo sintetizados con WebAudio al BPM del beat.
  *   Cero assets, loop perfecto y BPM exacto.
  * - URL http(s): un <audio> en loop (beats subidos por el backoffice).
+ * - SoundCloud: widget oficial embebido y controlado por postMessage.
  *
  * `blocked` queda true si el navegador bloqueó el autoplay; `unlock()` debe
  * llamarse desde un gesto del usuario.
  */
+
+const SOUNDCLOUD_WIDGET_API = "https://w.soundcloud.com/player/api.js";
+
+interface SoundCloudWidget {
+	bind(eventName: string, listener: () => void): void;
+	unbind(eventName: string): void;
+	play(): void;
+	pause(): void;
+	seekTo(milliseconds: number): void;
+	setVolume(volume: number): void;
+	isPaused(callback: (paused: boolean) => void): void;
+}
+
+interface SoundCloudApi {
+	Widget: {
+		(iframe: HTMLIFrameElement | string): SoundCloudWidget;
+		Events: {
+			FINISH: string;
+			PAUSE: string;
+			PLAY: string;
+			READY: string;
+		};
+	};
+}
+
+declare global {
+	interface Window {
+		SC?: SoundCloudApi;
+	}
+}
+
+let soundCloudApiPromise: Promise<SoundCloudApi> | null = null;
+let soundCloudConnectionPrimed = false;
+
+function primeSoundCloudConnection(): void {
+	if (soundCloudConnectionPrimed || typeof document === "undefined") return;
+	soundCloudConnectionPrimed = true;
+	for (const href of ["https://w.soundcloud.com", "https://api-widget.soundcloud.com"]) {
+		const existing = document.querySelector<HTMLLinkElement>(`link[rel="preconnect"][href="${href}"]`);
+		if (existing) continue;
+		const link = document.createElement("link");
+		link.rel = "preconnect";
+		link.href = href;
+		link.crossOrigin = "anonymous";
+		document.head.appendChild(link);
+	}
+	void loadSoundCloudApi().catch(() => {});
+}
+
+function loadSoundCloudApi(): Promise<SoundCloudApi> {
+	if (window.SC?.Widget) return Promise.resolve(window.SC);
+	if (soundCloudApiPromise) return soundCloudApiPromise;
+
+	soundCloudApiPromise = new Promise((resolve, reject) => {
+		const done = () => {
+			if (window.SC?.Widget) resolve(window.SC);
+			else reject(new Error("SoundCloud Widget API no disponible"));
+		};
+		const existing = document.querySelector<HTMLScriptElement>(`script[src="${SOUNDCLOUD_WIDGET_API}"]`);
+		if (existing) {
+			existing.addEventListener("load", done, { once: true });
+			existing.addEventListener("error", () => reject(new Error("No se pudo cargar SoundCloud")), { once: true });
+			return;
+		}
+
+		const script = document.createElement("script");
+		script.src = SOUNDCLOUD_WIDGET_API;
+		script.async = true;
+		script.addEventListener("load", done, { once: true });
+		script.addEventListener("error", () => reject(new Error("No se pudo cargar SoundCloud")), { once: true });
+		document.head.appendChild(script);
+	});
+
+	return soundCloudApiPromise;
+}
+
+function soundCloudParams(audioUrl: string, autoPlay: boolean): URLSearchParams {
+	return new URLSearchParams({
+		url: audioUrl,
+		auto_play: autoPlay ? "true" : "false",
+		buying: "false",
+		download: "false",
+		hide_related: "true",
+		sharing: "false",
+		show_artwork: "false",
+		show_comments: "false",
+		show_playcount: "false",
+		show_reposts: "false",
+		show_teaser: "false",
+		show_user: "false",
+		single_active: "false",
+		visual: "false",
+	});
+}
+
+function createSoundCloudFrame(audioUrl: string, autoPlay: boolean): HTMLIFrameElement {
+	const iframe = document.createElement("iframe");
+	iframe.title = "SoundCloud beat player";
+	iframe.allow = "autoplay";
+	iframe.src = `https://w.soundcloud.com/player/?${soundCloudParams(audioUrl, autoPlay).toString()}`;
+	iframe.setAttribute("scrolling", "no");
+	iframe.setAttribute("frameborder", "no");
+	Object.assign(iframe.style, {
+		border: "0",
+		bottom: "0",
+		height: "1px",
+		left: "0",
+		opacity: "0",
+		pointerEvents: "none",
+		position: "fixed",
+		width: "1px",
+	});
+	document.body.appendChild(iframe);
+	return iframe;
+}
 
 interface PatternStep {
 	/** Paso dentro del compás de 16 (0..15). */
@@ -276,9 +393,16 @@ export function useBeatPlayer() {
 	const [blocked, setBlocked] = useState(false);
 	const engineRef = useRef<SynthEngine | null>(null);
 	const audioRef = useRef<HTMLAudioElement | null>(null);
+	const soundCloudWidgetRef = useRef<SoundCloudWidget | null>(null);
+	const soundCloudFrameRef = useRef<HTMLIFrameElement | null>(null);
+	const soundCloudBlockedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const playSeqRef = useRef(0);
 	const beatRef = useRef<Beat | null>(null);
 
 	const stop = useCallback(() => {
+		playSeqRef.current += 1;
+		if (soundCloudBlockedTimerRef.current) clearTimeout(soundCloudBlockedTimerRef.current);
+		soundCloudBlockedTimerRef.current = null;
 		engineRef.current?.stop();
 		engineRef.current = null;
 		if (audioRef.current) {
@@ -286,6 +410,23 @@ export function useBeatPlayer() {
 			audioRef.current.src = "";
 			audioRef.current = null;
 		}
+		if (soundCloudWidgetRef.current) {
+			try {
+				const events = window.SC?.Widget.Events;
+				if (events) {
+					soundCloudWidgetRef.current.unbind(events.READY);
+					soundCloudWidgetRef.current.unbind(events.PLAY);
+					soundCloudWidgetRef.current.unbind(events.PAUSE);
+					soundCloudWidgetRef.current.unbind(events.FINISH);
+				}
+				soundCloudWidgetRef.current.pause();
+			} catch {
+				/* el iframe pudo haberse desmontado primero */
+			}
+			soundCloudWidgetRef.current = null;
+		}
+		soundCloudFrameRef.current?.remove();
+		soundCloudFrameRef.current = null;
 		beatRef.current = null;
 		setPlaying(null);
 		setBlocked(false);
@@ -295,6 +436,7 @@ export function useBeatPlayer() {
 		async (beat: Beat, volume = 0.4) => {
 			if (beatRef.current?.id === beat.id && !blocked) return;
 			stop();
+			const seq = ++playSeqRef.current;
 			beatRef.current = beat;
 			const style = synthStyleOf(beat);
 			if (style) {
@@ -308,6 +450,48 @@ export function useBeatPlayer() {
 					setBlocked(false);
 				}
 				setPlaying(beat.id);
+				return;
+			}
+			if (isSoundCloudUrl(beat.audioUrl)) {
+				setPlaying(beat.id);
+				const frame = createSoundCloudFrame(beat.audioUrl, true);
+				soundCloudFrameRef.current = frame;
+				try {
+					const api = await loadSoundCloudApi();
+					if (playSeqRef.current !== seq) return;
+					const widget = api.Widget(frame);
+					soundCloudWidgetRef.current = widget;
+
+					const checkBlocked = (delay = 1200) => {
+						if (soundCloudBlockedTimerRef.current) clearTimeout(soundCloudBlockedTimerRef.current);
+						soundCloudBlockedTimerRef.current = setTimeout(() => {
+							if (playSeqRef.current !== seq) return;
+							widget.isPaused((paused) => {
+								if (playSeqRef.current !== seq) return;
+								setBlocked(paused);
+							});
+						}, delay);
+					};
+
+					widget.bind(api.Widget.Events.READY, () => {
+						if (playSeqRef.current !== seq) return;
+						widget.setVolume(Math.round(volume * 100));
+						widget.seekTo(0);
+						widget.play();
+						checkBlocked();
+					});
+					widget.bind(api.Widget.Events.PLAY, () => {
+						if (playSeqRef.current === seq) setBlocked(false);
+					});
+					widget.bind(api.Widget.Events.FINISH, () => {
+						if (playSeqRef.current !== seq) return;
+						widget.seekTo(0);
+						widget.play();
+					});
+					checkBlocked(5000);
+				} catch {
+					if (playSeqRef.current === seq) setBlocked(true);
+				}
 				return;
 			}
 			const audio = new Audio(beat.audioUrl);
@@ -343,10 +527,24 @@ export function useBeatPlayer() {
 			);
 			return;
 		}
+		if (soundCloudWidgetRef.current) {
+			const seq = playSeqRef.current;
+			soundCloudWidgetRef.current.play();
+			if (soundCloudBlockedTimerRef.current) clearTimeout(soundCloudBlockedTimerRef.current);
+			soundCloudBlockedTimerRef.current = setTimeout(() => {
+				soundCloudWidgetRef.current?.isPaused((paused) => {
+					if (playSeqRef.current === seq) setBlocked(paused);
+				});
+			}, 700);
+			return;
+		}
 		if (beat) void play(beat);
 	}, [play]);
 
-	useEffect(() => stop, [stop]);
+	useEffect(() => {
+		primeSoundCloudConnection();
+		return stop;
+	}, [stop]);
 
 	return { play, stop, unlock, playing, blocked };
 }

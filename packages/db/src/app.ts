@@ -450,7 +450,8 @@ export async function recordBattleStart(db: D1Database, input: BattlePersistInpu
 				player2_session_id = excluded.player2_session_id,
 				player1_name = excluded.player1_name,
 				player2_name = excluded.player2_name,
-				started_at = COALESCE(battles.started_at, excluded.started_at)`,
+				started_at = COALESCE(battles.started_at, excluded.started_at)
+			 WHERE battles.status NOT IN ('finished', 'aborted')`,
 		)
 		.bind(
 			input.id,
@@ -655,7 +656,8 @@ export async function listBattles(db: D1Database, limit = 20): Promise<BattleSum
 				beat_audio_url AS beatAudioUrl,
 				beat_bpm AS beatBpm,
 				winner, score_p1 AS scoreP1, score_p2 AS scoreP2,
-				status, started_at AS startedAt, ended_at AS endedAt
+				CASE WHEN winner IS NOT NULL AND status = 'active' THEN 'finished' ELSE status END AS status,
+				started_at AS startedAt, ended_at AS endedAt
 			 FROM battles
 			 ORDER BY COALESCE(ended_at, started_at, 0) DESC
 			 LIMIT ?`,
@@ -679,9 +681,10 @@ export async function listUserBattles(db: D1Database, userId: string, limit = 30
 				beat_audio_url AS beatAudioUrl,
 				beat_bpm AS beatBpm,
 				winner, score_p1 AS scoreP1, score_p2 AS scoreP2,
-				status, started_at AS startedAt, ended_at AS endedAt
+				CASE WHEN winner IS NOT NULL AND status = 'active' THEN 'finished' ELSE status END AS status,
+				started_at AS startedAt, ended_at AS endedAt
 			 FROM battles
-			 WHERE (player1_id = ? OR player2_id = ?) AND status = 'finished'
+			 WHERE (player1_id = ? OR player2_id = ?) AND (status = 'finished' OR winner IS NOT NULL)
 			 ORDER BY COALESCE(ended_at, started_at, 0) DESC
 			 LIMIT ?`,
 		)

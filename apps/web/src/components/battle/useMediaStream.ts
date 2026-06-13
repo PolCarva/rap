@@ -12,6 +12,7 @@ type MediaStatus = "idle" | "requesting" | "ready" | "denied";
 export function useMediaStream() {
 	const [status, setStatus] = useState<MediaStatus>("idle");
 	const [audioLevel, setAudioLevel] = useState(0);
+	const [version, setVersion] = useState(0);
 	const streamRef = useRef<MediaStream | null>(null);
 	const rafRef = useRef<number | null>(null);
 	const audioCtxRef = useRef<AudioContext | null>(null);
@@ -53,6 +54,7 @@ export function useMediaStream() {
 		stopAudioMeter();
 		streamRef.current?.getTracks().forEach((t) => t.stop());
 		streamRef.current = null;
+		setVersion((v) => v + 1);
 		setAudioLevel(0);
 		setStatus("idle");
 	}, [stopAudioMeter]);
@@ -62,7 +64,9 @@ export function useMediaStream() {
 		setStatus("requesting");
 		try {
 			const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+			streamRef.current?.getTracks().forEach((t) => t.stop());
 			streamRef.current = stream;
+			setVersion((v) => v + 1);
 			setStatus("ready");
 			startAudioMeter(stream);
 		} catch {
@@ -74,6 +78,9 @@ export function useMediaStream() {
 		if (userStoppedRef.current || status === "requesting" || status === "denied") return;
 
 		const stream = streamRef.current;
+		const endedTracks = stream?.getTracks().filter((track) => track.readyState !== "live") ?? [];
+		endedTracks.forEach((track) => stream?.removeTrack(track));
+		if (endedTracks.length > 0) setVersion((v) => v + 1);
 		const hasLiveAudio = stream?.getAudioTracks().some((track) => track.readyState === "live") ?? false;
 		const hasLiveVideo = stream?.getVideoTracks().some((track) => track.readyState === "live") ?? false;
 
@@ -86,6 +93,7 @@ export function useMediaStream() {
 			try {
 				const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
 				audioOnly.getAudioTracks().forEach((track) => stream.addTrack(track));
+				setVersion((v) => v + 1);
 				startAudioMeter(stream);
 				setStatus("ready");
 			} catch {
@@ -100,13 +108,17 @@ export function useMediaStream() {
 	 */
 	const releaseAudio = useCallback(() => {
 		stopAudioMeter();
-		streamRef.current?.getAudioTracks().forEach((t) => t.stop());
+		streamRef.current?.getAudioTracks().forEach((t) => {
+			t.stop();
+			streamRef.current?.removeTrack(t);
+		});
+		setVersion((v) => v + 1);
 		setAudioLevel(0);
 	}, [stopAudioMeter]);
 
 	useEffect(() => () => stop(), [stop]);
 
-	return { status, audioLevel, stream: streamRef, start, stop, ensureActive, releaseAudio };
+	return { status, audioLevel, version, stream: streamRef, start, stop, ensureActive, releaseAudio };
 }
 
 export type MediaController = ReturnType<typeof useMediaStream>;

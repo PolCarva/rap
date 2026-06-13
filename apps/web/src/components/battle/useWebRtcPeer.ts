@@ -9,10 +9,12 @@ interface IncomingSignal {
 	role: Role;
 	signal: RtcSignal;
 	seq: number;
+	peerKey: string | null;
 }
 
 interface Options {
 	enabled: boolean;
+	peerKey: string;
 	initiator: boolean;
 	localStream: MediaStream | null;
 	incomingSignal: IncomingSignal | null;
@@ -21,12 +23,38 @@ interface Options {
 
 const ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 
-export function useWebRtcPeer({ enabled, initiator, localStream, incomingSignal, onSignal }: Options) {
+export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomingSignal, onSignal }: Options) {
 	const pcRef = useRef<RTCPeerConnection | null>(null);
 	const handledSignalSeq = useRef(0);
 	const makingOffer = useRef(false);
+	const peerKeyRef = useRef<string | null>(null);
 	const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 	const [status, setStatus] = useState<PeerStatus>("idle");
+
+	const closePeer = useCallback(() => {
+		pcRef.current?.close();
+		pcRef.current = null;
+		setRemoteStream(null);
+		setStatus("idle");
+		makingOffer.current = false;
+	}, []);
+
+	const makeOffer = useCallback(
+		async (pc: RTCPeerConnection) => {
+			if (makingOffer.current || pc.signalingState !== "stable") return;
+			makingOffer.current = true;
+			try {
+				const offer = await pc.createOffer();
+				await pc.setLocalDescription(offer);
+				if (pc.localDescription) {
+					onSignal({ type: "offer", description: pc.localDescription.toJSON() });
+				}
+			} finally {
+				makingOffer.current = false;
+			}
+		},
+		[onSignal],
+	);
 
 	const createPeer = useCallback(() => {
 		if (pcRef.current) return pcRef.current;
@@ -42,23 +70,62 @@ export function useWebRtcPeer({ enabled, initiator, localStream, incomingSignal,
 		};
 		pc.ontrack = (event) => {
 			const [stream] = event.streams;
-			if (stream) setRemoteStream(stream);
+			if (stream) {
+				setRemoteStream(stream);
+				return;
+			}
+			setRemoteStream((prev) => {
+				const next = prev ?? new MediaStream();
+				if (!next.getTracks().some((track) => track.id === event.track.id)) next.addTrack(event.track);
+				return next;
+			});
+		};
+		pc.onnegotiationneeded = () => {
+			if (!initiator && !pc.remoteDescription) return;
+			void makeOffer(pc).catch(() => setStatus("failed"));
 		};
 		pc.onconnectionstatechange = () => {
 			if (pc.connectionState === "connected") setStatus("connected");
 			if (pc.connectionState === "failed" || pc.connectionState === "disconnected") setStatus("failed");
 		};
 		return pc;
-	}, [onSignal]);
+	}, [initiator, makeOffer, onSignal]);
+
+	useEffect(() => {
+		if (peerKeyRef.current === null) {
+			peerKeyRef.current = peerKey;
+			return;
+		}
+		if (peerKeyRef.current === peerKey) return;
+		peerKeyRef.current = peerKey;
+		closePeer();
+	}, [closePeer, peerKey]);
 
 	useEffect(() => {
 		if (!enabled || !localStream) return;
 		const pc = createPeer();
-		const senders = new Set(pc.getSenders().map((sender) => sender.track));
-		for (const track of localStream.getTracks()) {
-			if (!senders.has(track)) pc.addTrack(track, localStream);
-		}
-		onSignal({ type: "media-ready" });
+		let cancelled = false;
+		const syncTracks = async () => {
+			const liveTracks = localStream.getTracks().filter((track) => track.readyState === "live");
+			for (const sender of pc.getSenders()) {
+				if (sender.track && (!liveTracks.includes(sender.track) || sender.track.readyState !== "live")) {
+					pc.removeTrack(sender);
+				}
+			}
+			for (const track of liveTracks) {
+				if (cancelled) return;
+				const senders = pc.getSenders();
+				if (senders.some((sender) => sender.track === track)) continue;
+				const sameKind = senders.find((sender) => sender.track?.kind === track.kind);
+				if (sameKind) await sameKind.replaceTrack(track);
+				else pc.addTrack(track, localStream);
+			}
+			if (!cancelled) onSignal({ type: "media-ready" });
+		};
+		void syncTracks().catch(() => setStatus("failed"));
+		return () => {
+			cancelled = true;
+		};
 	}, [createPeer, enabled, localStream, onSignal]);
 
 	useEffect(() => {
@@ -66,27 +133,23 @@ export function useWebRtcPeer({ enabled, initiator, localStream, incomingSignal,
 		const pc = createPeer();
 		if (pc.signalingState !== "stable") return;
 		let cancelled = false;
-		const makeOffer = async () => {
-			makingOffer.current = true;
+		const sendInitialOffer = async () => {
 			try {
-				const offer = await pc.createOffer();
 				if (cancelled) return;
-				await pc.setLocalDescription(offer);
-				if (pc.localDescription) {
-					onSignal({ type: "offer", description: pc.localDescription.toJSON() });
-				}
-			} finally {
-				makingOffer.current = false;
+				await makeOffer(pc);
+			} catch {
+				setStatus("failed");
 			}
 		};
-		void makeOffer();
+		void sendInitialOffer();
 		return () => {
 			cancelled = true;
 		};
-	}, [createPeer, enabled, initiator, localStream, onSignal]);
+	}, [createPeer, enabled, initiator, localStream, makeOffer]);
 
 	useEffect(() => {
 		if (!enabled || !incomingSignal || incomingSignal.seq <= handledSignalSeq.current) return;
+		if (incomingSignal.peerKey !== peerKey) return;
 		handledSignalSeq.current = incomingSignal.seq;
 		const pc = createPeer();
 		const applySignal = async () => {
@@ -113,21 +176,16 @@ export function useWebRtcPeer({ enabled, initiator, localStream, incomingSignal,
 			}
 		};
 		void applySignal().catch(() => setStatus("failed"));
-	}, [createPeer, enabled, incomingSignal, initiator, onSignal]);
+	}, [createPeer, enabled, incomingSignal, initiator, onSignal, peerKey]);
 
 	useEffect(() => {
 		if (enabled) return;
-		pcRef.current?.close();
-		pcRef.current = null;
-		setRemoteStream(null);
-		setStatus("idle");
-	}, [enabled]);
+		closePeer();
+	}, [closePeer, enabled]);
 
 	useEffect(() => {
-		return () => {
-			pcRef.current?.close();
-		};
-	}, []);
+		return () => closePeer();
+	}, [closePeer]);
 
 	return { remoteStream, status };
 }

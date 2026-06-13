@@ -1,8 +1,10 @@
 import {
 	analyzeRhymes,
+	flattenWordPlan,
 	getModality,
 	roundStarter,
 	turnDurationMs,
+	wordsForRole as promptWordsForRole,
 	type BattleState,
 	type PlayerVerdict,
 	type Role,
@@ -68,6 +70,21 @@ function normalizeTotal(rawTotal: number | null | undefined, criteriaTotal: numb
 	return Math.abs(total - criteriaTotal) > 30 ? criteriaTotal : total;
 }
 
+function allRequiredWords(state: BattleState): string[] {
+	return state.wordPlan ? flattenWordPlan(state.wordPlan) : state.words;
+}
+
+function requiredWordsForRole(state: BattleState, role: Role): string[] {
+	const assigned = promptWordsForRole(state.wordPlan, role);
+	return assigned.length > 0 ? assigned : state.words;
+}
+
+function formatWordPlan(state: BattleState, role: Role): string {
+	const batches = state.wordPlan?.[role] ?? [];
+	if (batches.length === 0) return requiredWordsForRole(state, role).join(", ");
+	return batches.map((batch, index) => `${index + 1}) ${batch.join(", ")}`).join(" | ");
+}
+
 /**
  * Juez de freestyle. Si hay OPENROUTER_API_KEY usa un LLM como jurado
  * profesional; si no (o si falla), cae a una heurística para que la batalla
@@ -76,6 +93,7 @@ function normalizeTotal(rawTotal: number | null | undefined, criteriaTotal: numb
 export async function judgeBattle(state: BattleState, env: Env): Promise<Verdict> {
 	const apiKey = env.OPENROUTER_API_KEY;
 	if (!apiKey) return judgeHeuristic(state);
+	const hasWords = allRequiredWords(state).length > 0;
 
 	const model = env.OPENROUTER_JUDGE_MODEL ?? DEFAULT_MODEL;
 	const body = JSON.stringify({
@@ -112,7 +130,7 @@ export async function judgeBattle(state: BattleState, env: Env): Promise<Verdict
 			const parsed = llmOutputSchema.safeParse(JSON.parse(extractJson(content)));
 			if (!parsed.success) continue;
 
-			return toVerdict(parsed.data, model, state.words.length > 0, state.replicaCount);
+			return toVerdict(parsed.data, model, hasWords, state.replicaCount);
 		} catch {
 			/* reintentar */
 		}
@@ -268,12 +286,14 @@ function extractJson(text: string): string {
 
 function systemPrompt(state: BattleState): string {
 	const mod = getModality(state.modality);
-	const hasWords = state.words.length > 0;
+	const hasWords = allRequiredWords(state).length > 0;
 
 	const weights: Record<string, string> = {
 		"4x4": "Es una batalla directa de ida y vuelta: la RESPUESTA (réplica a lo que dijo el rival) y los PUNCHLINES pesan más.",
 		"minuto-libre": "Es minuto libre: valorá sobre todo el FLOW y las RIMAS sostenidas, el despliegue y el contenido continuo. No hay réplica directa, así que 'respuesta' importa menos.",
-		palabras: "El USO de las palabras obligatorias es decisivo: premiá usarlas TODAS, integrarlas con sentido y, sobre todo, rimar o construir punchlines alrededor de ellas. Penalizá las que no use NI referencie.",
+		palabras: "Cada tanda trae palabras que riman entre sí: premiá usarlas dentro del tramo correspondiente, rimarlas entre ellas y no soltarlas como lista mecánica.",
+		hard: "El modo Hard cambia palabra cada 5 segundos para cada MC: premiá precisión bajo presión, uso rápido y natural de la palabra activa.",
+		easy: "El modo Easy cambia palabra cada 10 segundos para cada MC: premiá integrar cada palabra con sentido, continuidad y buenas rimas.",
 		deconceptos: "Premiá el DESARROLLO y el hilado de los conceptos dados: profundidad, coherencia y construir contenido alrededor de ellos.",
 	};
 
@@ -290,7 +310,7 @@ function systemPrompt(state: BattleState): string {
 		"- respuesta: si contesta/replica lo que dijo el rival.",
 		`- palabras: ${
 			hasWords
-				? "qué tan bien usa e integra las palabras/conceptos obligatorios (y si rima con ellos). IMPORTANTE: también valen las REFERENCIAS CONCEPTUALES, no solo la palabra literal — si la palabra es 'gato', cuentan 'siete vidas', 'Allan Poe', 'mala suerte', 'maullar', 'bigotes'; si es 'espejo', cuentan 'reflejo', 'verse la cara', 'el otro yo'. Una alusión ingeniosa al campo semántico vale tanto o más que soltar la palabra suelta sin trabajarla. Abajo va el chequeo literal automático: si una palabra figura como NO usada literalmente, revisá si la referenció antes de puntuar bajo."
+				? "qué tan bien usa e integra las palabras/conceptos obligatorios que le tocaron a ESE jugador (y si rima con ellos). No penalices a un MC por palabras asignadas al rival. IMPORTANTE: también valen las REFERENCIAS CONCEPTUALES, no solo la palabra literal — si la palabra es 'gato', cuentan 'siete vidas', 'Allan Poe', 'mala suerte', 'maullar', 'bigotes'; si es 'espejo', cuentan 'reflejo', 'verse la cara', 'el otro yo'. Una alusión ingeniosa al campo semántico vale tanto o más que soltar la palabra suelta sin trabajarla. Abajo va el chequeo literal automático: si una palabra figura como NO usada literalmente, revisá si la referenció antes de puntuar bajo."
 				: "esta modalidad NO tiene palabras obligatorias, así que poné palabras: null."
 		}`,
 		"",
@@ -365,7 +385,9 @@ function userPrompt(state: BattleState): string {
 
 	const lines = [
 		`Modalidad: ${mod.name} — ${mod.description}`,
-		`Palabras/conceptos obligatorios: ${state.words.length ? state.words.join(", ") : "ninguna"}`,
+		state.wordPlan
+			? `Palabras obligatorias por MC: p1 [${formatWordPlan(state, "p1")}]; p2 [${formatWordPlan(state, "p2")}]`
+			: `Palabras/conceptos obligatorios: ${state.words.length ? state.words.join(", ") : "ninguna"}`,
 		`Estructura: ${state.totalRounds} ronda(s) por jugador, ~${turnSec}s por turno. Quién abre cada ronda alterna.`,
 		state.beat ? `Beat: ${state.beat.name}${state.beat.bpm ? ` a ${state.beat.bpm} BPM` : ""} (ambos rapearon sobre la misma pista).` : "Sin beat.",
 	];
@@ -379,8 +401,10 @@ function userPrompt(state: BattleState): string {
 			`Datos objetivos de ${role} (${state.players[role].name}):`,
 			`  [análisis fonético: ${rhymeStats(state.verses[role])}]`,
 		);
-		if (state.words.length > 0) {
-			lines.push(`  [chequeo literal de palabras: ${literalWordUsage(state.words, state.verses[role])}]`);
+		const assignedWords = requiredWordsForRole(state, role);
+		if (assignedWords.length > 0) {
+			lines.push(`  [palabras asignadas: ${assignedWords.join(", ")}]`);
+			lines.push(`  [chequeo literal de palabras: ${literalWordUsage(assignedWords, state.verses[role])}]`);
 		}
 	}
 	return lines.join("\n");
@@ -391,18 +415,19 @@ function userPrompt(state: BattleState): string {
  * palabras de la modalidad. Mantiene la batalla jugable si no hay key o falla.
  */
 export function judgeHeuristic(state: BattleState): Verdict {
-	const score = (verses: string[]): number => {
+	const score = (role: Role): number => {
+		const verses = state.verses[role];
 		const text = normalizeText(verses.join(" "));
 		const words = text.split(/\s+/).filter(Boolean);
 		let s = words.length;
-		for (const w of state.words) {
+		for (const w of requiredWordsForRole(state, role)) {
 			if (text.includes(normalizeText(w))) s += 10;
 		}
 		return s;
 	};
 
-	const p1 = score(state.verses.p1);
-	const p2 = score(state.verses.p2);
+	const p1 = score("p1");
+	const p2 = score("p2");
 	const outcome = votesFromScores(p1, p2, state.replicaCount);
 
 	return {

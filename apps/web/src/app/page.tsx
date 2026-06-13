@@ -43,7 +43,9 @@ const STEPS = [
 const DIFF: Record<string, string> = {
 	"4x4": "MEDIO",
 	"minuto-libre": "ABIERTO",
-	palabras: "DIFÍCIL",
+	palabras: "RIMAS",
+	hard: "HARD",
+	easy: "EASY",
 	deconceptos: "CONCEPTUAL",
 };
 
@@ -166,7 +168,7 @@ export default function Home() {
 				<Reveal className="cine-section-head">
 					<p className="cine-kicker">ELEGÍ TU GUERRA</p>
 					<h2 className="cine-h2">
-						CUATRO <em>MODOS</em>
+						SEIS <em>MODOS</em>
 					</h2>
 				</Reveal>
 				<div className="cine-modes">

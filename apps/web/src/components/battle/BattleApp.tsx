@@ -18,7 +18,7 @@ export function BattleApp() {
 	const { state } = engine;
 	const resumedRef = useRef(false);
 	// Última búsqueda, para re-encolar con la misma config si el rival abandona.
-	const lastSearchRef = useRef<{ session: RapSession; modality: ModalityId; beatId: string | null } | null>(null);
+	const [lastSearch, setLastSearch] = useState<{ session: RapSession; modality: ModalityId; beatId: string | null; devBot: boolean } | null>(null);
 
 	// Tras un refresh, retomar la batalla activa si la había.
 	const { resume } = engine;
@@ -56,11 +56,11 @@ export function BattleApp() {
 				onRematch={engine.sendRematch}
 				onLeave={engine.leave}
 				onRequeue={
-					lastSearchRef.current
+					lastSearch
 						? () => {
-								const last = lastSearchRef.current!;
+								const last = lastSearch;
 								engine.leave();
-								void engine.search(last.session, last.modality, last.beatId);
+								void engine.search(last.session, last.modality, last.beatId, last.devBot);
 							}
 						: null
 				}
@@ -77,7 +77,7 @@ export function BattleApp() {
 			error={state.error}
 			media={media}
 			session={rapSession.session}
-			onSearch={(identity, m, beatId) => {
+			onSearch={(identity, m, beatId, devBot) => {
 				const nextSession: RapSession = identity.isGuest
 					? {
 							...rapSession.session,
@@ -107,8 +107,8 @@ export function BattleApp() {
 					}),
 				}).catch(() => {});
 				setModality(m);
-				lastSearchRef.current = { session: nextSession, modality: m, beatId };
-				engine.search(nextSession, m, beatId);
+				setLastSearch({ session: nextSession, modality: m, beatId, devBot });
+				engine.search(nextSession, m, beatId, devBot);
 			}}
 		/>
 	);

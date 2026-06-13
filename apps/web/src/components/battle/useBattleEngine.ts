@@ -24,7 +24,7 @@ export interface EngineState {
 	battle: BattleState | null;
 	/** Caption en vivo del rival (transitorio, no parte del estado autoritativo). */
 	opponentCaption: string;
-	incomingSignal: { role: Role; signal: RtcSignal; seq: number } | null;
+	incomingSignal: { role: Role; signal: RtcSignal; seq: number; peerKey: string | null } | null;
 	/** true mientras se reintenta la conexión con la sala. */
 	reconnecting: boolean;
 }
@@ -131,6 +131,10 @@ export function useBattleEngine() {
 					// Al cambiar de turno (o de batalla/réplica), limpiar el caption del
 					// rival para que no quede pegado el verso anterior.
 					const prev = s.battle;
+					const samePeer =
+						prev !== null &&
+						prev.battleId === msg.state.battleId &&
+						prev.replicaCount === msg.state.replicaCount;
 					const sameTurn =
 						prev !== null &&
 						prev.battleId === msg.state.battleId &&
@@ -144,6 +148,7 @@ export function useBattleEngine() {
 						myRole: role,
 						reconnecting: false,
 						opponentCaption: sameTurn ? s.opponentCaption : "",
+						incomingSignal: samePeer ? s.incomingSignal : null,
 					};
 				});
 			} else if (msg.kind === "caption") {
@@ -151,7 +156,15 @@ export function useBattleEngine() {
 			} else if (msg.kind === "signal") {
 				if (msg.role !== role) {
 					const seq = ++signalSeqRef.current;
-					setState((s) => ({ ...s, incomingSignal: { role: msg.role, signal: msg.signal, seq } }));
+					setState((s) => ({
+						...s,
+						incomingSignal: {
+							role: msg.role,
+							signal: msg.signal,
+							seq,
+							peerKey: s.battle ? `${s.battle.battleId}:${s.battle.replicaCount}` : null,
+						},
+					}));
 				}
 			} else if (msg.kind === "error") {
 				// Sala expirada o rol tomado: no hay batalla que retomar.
@@ -202,7 +215,7 @@ export function useBattleEngine() {
 	}, [joinBattle]);
 
 	const search = useCallback(
-		async (session: RapSession, modality: ModalityId, beatId: string | null) => {
+		async (session: RapSession, modality: ModalityId, beatId: string | null, devBot = false) => {
 			leftRef.current = false;
 			lastPhaseRef.current = null;
 			reconnectAttemptsRef.current = 0;
@@ -229,6 +242,7 @@ export function useBattleEngine() {
 						sessionId: session.sessionId,
 						userId: session.userId,
 						isGuest: session.isGuest,
+						devBot,
 						authToken,
 					}),
 				);

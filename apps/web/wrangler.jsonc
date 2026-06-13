@@ -40,6 +40,12 @@
 			"migrations_dir": "../../packages/db/migrations"
 		}
 	],
+	"r2_buckets": [
+		{
+			"binding": "BEAT_UPLOADS",
+			"bucket_name": "rap-beat-uploads"
+		}
+	],
 	"observability": {
 		"enabled": true
 	},

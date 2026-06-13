@@ -13,11 +13,12 @@ interface Props {
 	mirror?: boolean;
 	stream?: MediaStream | null;
 	videoMuted?: boolean;
+	isBot?: boolean;
 	mediaStatus?: string;
 	remaining?: number | null;
 }
 
-export function PlayerPanel({ player, isSelf, isActive, caption, mirror, stream, videoMuted, remaining }: Props) {
+export function PlayerPanel({ player, isSelf, isActive, caption, mirror, stream, videoMuted, isBot, mediaStatus, remaining }: Props) {
 	const videoRef = useRef<HTMLVideoElement>(null);
 	const subtitlePreviewRef = useRef<HTMLDivElement>(null);
 	const [showFullTranscript, setShowFullTranscript] = useState(false);
@@ -57,7 +58,11 @@ export function PlayerPanel({ player, isSelf, isActive, caption, mirror, stream,
 							<div>CÁMARA NO DISPONIBLE</div>
 						</>
 					) : (
-						<div className="rival-silhouette" />
+						<>
+							<div className="rival-silhouette" />
+							{isBot && <div>BOT DE PRUEBA</div>}
+							{!isBot && mediaStatus && <div>{mediaStatus.toUpperCase()}</div>}
+						</>
 					)}
 				</div>
 			)}
@@ -69,7 +74,7 @@ export function PlayerPanel({ player, isSelf, isActive, caption, mirror, stream,
 			<div className="fighter-plate">
 				<div className="fighter-aka">{player.name || (isSelf ? "TÚ" : "???")}</div>
 				<div className="fighter-tag">
-					{isSelf ? "LOCAL · EN VIVO" : "RIVAL · CONECTADO"}
+					{isSelf ? "LOCAL · EN VIVO" : isBot ? "BOT · DEV" : "RIVAL · CONECTADO"}
 					{!player.connected && " · DESCONECTADO"}
 				</div>
 			</div>

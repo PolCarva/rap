@@ -101,9 +101,9 @@ export function HeroScene() {
 		base.position.y = -1.85;
 		mic.add(base);
 
-		mic.position.y = 0.50;
+		mic.position.y = -0.15;
 		mic.rotation.z = 0.22;
-		mic.scale.setScalar(0.92);
+		mic.scale.setScalar(0.78);
 		scene.add(mic);
 
 		// Halo cálido detrás del mic: lo recorta en silueta contra el fondo negro
@@ -126,21 +126,21 @@ export function HeroScene() {
 				opacity: 0.8,
 			}),
 		);
-		halo.scale.setScalar(9.5);
-		halo.position.set(0, 0.7, -2.2);
+		halo.scale.setScalar(7.6);
+		halo.position.set(0, 0.15, -2.2);
 		scene.add(halo);
 
 		// Composición responsive: en pantallas anchas el mic vive en el tercio
 		// derecho (la tipografía va a la izquierda); en angostas, centrado detrás.
-		const micTarget = { x: 0, scale: 0.92 };
+		const micTarget = { x: 0, scale: 0.78 };
 		const updateComposition = () => {
 			const aspect = mount.clientWidth / Math.max(1, mount.clientHeight);
 			if (aspect >= 1.15) {
 				micTarget.x = 2.6;
-				micTarget.scale = 1.05;
+				micTarget.scale = 0.88;
 			} else {
 				micTarget.x = 0;
-				micTarget.scale = 0.8;
+				micTarget.scale = 0.66;
 			}
 		};
 		updateComposition();
@@ -218,7 +218,7 @@ export function HeroScene() {
 			rim2.position.x = 3.4 + mic.position.x * 0.6;
 
 			if (!reduced) {
-				mic.position.y = 0.6 + Math.sin(t * 0.9) * 0.16;
+				mic.position.y = -0.05 + Math.sin(t * 0.9) * 0.12;
 				mic.rotation.y = t * 0.24;
 				mic.rotation.z = 0.22 + Math.sin(t * 0.5) * 0.05;
 				ring.rotation.z = t * 0.6;
@@ -245,7 +245,7 @@ export function HeroScene() {
 			// Cámara con parallax suave, mirando entre el texto y el mic.
 			camera.position.x += (mx * 1.5 - camera.position.x) * 0.04;
 			camera.position.y += (1.1 + my * -0.8 - camera.position.y) * 0.04;
-			camera.lookAt(mic.position.x * 0.3, 0.7, 0);
+			camera.lookAt(mic.position.x * 0.3, 0.35, 0);
 
 			renderer.render(scene, camera);
 			raf = requestAnimationFrame(render);

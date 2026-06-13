@@ -10,6 +10,15 @@ const ANALYZE_SECONDS = 30;
 const MIN_BPM = 70;
 const MAX_BPM = 180;
 
+export function isSoundCloudUrl(input: string): boolean {
+	try {
+		const host = new URL(input).hostname.toLowerCase();
+		return host === "soundcloud.com" || host.endsWith(".soundcloud.com");
+	} catch {
+		return false;
+	}
+}
+
 function findPeaks(data: Float32Array, sampleRate: number): number[] {
 	let max = 0;
 	for (let i = 0; i < data.length; i++) {

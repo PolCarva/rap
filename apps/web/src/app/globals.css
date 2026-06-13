@@ -2221,6 +2221,9 @@ body {
 	font-size: clamp(46px, 8vw, 110px);
 	line-height: 0.86;
 	text-transform: uppercase;
+	padding-block: 2px;
+	overflow: hidden;
+	height: 100%;
 }
 
 .cine-h2 em {
@@ -3897,6 +3900,43 @@ a.rk-row:hover {
 
 .backoffice-check input {
 	width: auto;
+}
+
+.backoffice-file {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	border: 1px dashed rgba(255, 255, 255, 0.22);
+	background: rgba(255, 255, 255, 0.02);
+	padding: 14px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+	cursor: pointer;
+}
+
+.backoffice-file::after {
+	content: "Elegir archivo";
+	border: 1px solid var(--line);
+	padding: 8px 10px;
+	color: var(--bone);
+	white-space: nowrap;
+}
+
+.backoffice-file:hover {
+	border-color: rgba(125, 249, 203, 0.5);
+	color: var(--bone);
+}
+
+.backoffice-file input {
+	position: absolute;
+	inset: 0;
+	opacity: 0;
+	cursor: pointer;
 }
 
 .backoffice-actions,

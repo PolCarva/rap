@@ -15,13 +15,16 @@ interface Props {
 		identity: { isGuest: true; name: string } | { isGuest: false; name: string; email: string | null },
 		modality: ModalityId,
 		beatId: string | null,
+		devBot: boolean,
 	) => void;
 }
 
 const DIFF_LABELS: Record<string, string> = {
 	"4x4": "NIVEL: MEDIO",
 	"minuto-libre": "NIVEL: ABIERTO",
-	palabras: "NIVEL: DIFÍCIL",
+	palabras: "NIVEL: RIMAS",
+	hard: "NIVEL: HARD",
+	easy: "NIVEL: EASY",
 	deconceptos: "NIVEL: CONCEPTUAL",
 };
 
@@ -35,9 +38,11 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 	const [asGuest, setAsGuest] = useState(session.isGuest);
 	const [accountAka, setAccountAka] = useState(session.isGuest ? "" : session.name);
 	const [guestAka, setGuestAka] = useState(session.isGuest ? session.name : "");
+	const [devBot, setDevBot] = useState(false);
 	const videoRef = useRef<HTMLVideoElement>(null);
 
 	const isLoggedIn = !session.isGuest && !!session.userId;
+	const showDevBot = process.env.NODE_ENV === "development";
 
 	useEffect(() => {
 		setAsGuest(!isLoggedIn);
@@ -86,9 +91,9 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 		beatPreview.stop();
 		if (!canEnter) return;
 		if (canUseAccount) {
-			onSearch({ isGuest: false, name, email: session.email }, modality, selectedBeatId);
+			onSearch({ isGuest: false, name, email: session.email }, modality, selectedBeatId, showDevBot && devBot);
 		} else {
-			onSearch({ isGuest: true, name }, modality, selectedBeatId);
+			onSearch({ isGuest: true, name }, modality, selectedBeatId, showDevBot && devBot);
 		}
 	};
 
@@ -97,7 +102,8 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 		const m = MODALITIES[modality];
 		const beat = selectedBeat ? selectedBeat.name : beatId === "random" ? "BEAT RANDOM" : "SIN BEAT";
 		const rank = canUseAccount ? "RANKEADA" : "INVITADO";
-		return `${currentAka.toUpperCase()} · ${m.name.toUpperCase()} · ${beat.toUpperCase()} · ${rank}`;
+		const rival = showDevBot && devBot ? "BOT DEV" : rank;
+		return `${currentAka.toUpperCase()} · ${m.name.toUpperCase()} · ${beat.toUpperCase()} · ${rival}`;
 	};
 
 	return (
@@ -295,6 +301,16 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 
 			<section className="launch-panel">
 				{error && <p className="launch-error">{error}</p>}
+				{showDevBot && (
+					<div className="identity-switch" role="tablist" aria-label="Rival de prueba">
+						<button className={!devBot ? "active" : ""} onClick={() => setDevBot(false)}>
+							Rival real
+						</button>
+						<button className={devBot ? "active" : ""} onClick={() => setDevBot(true)}>
+							Bot dev
+						</button>
+					</div>
+				)}
 				<button disabled={!canEnter} onClick={handleSearch} className="btn-arena" style={{ fontSize: "clamp(22px, 2.4vw, 32px)", padding: "22px 64px" }}>
 					<span>BUSCAR RIVAL</span>
 				</button>

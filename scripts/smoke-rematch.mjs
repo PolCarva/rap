@@ -1,6 +1,6 @@
 // Smoke de revancha: batalla con ganador → ambos piden revancha → la sala
 // resetea (ready_check, battleId nuevo, sin verdict) → segunda batalla cierra.
-const BASE = "ws://127.0.0.1:8787";
+const BASE = process.argv[2] ?? "ws://127.0.0.1:8787";
 const MODALITY = "minuto-libre";
 
 const fail = (m) => {
