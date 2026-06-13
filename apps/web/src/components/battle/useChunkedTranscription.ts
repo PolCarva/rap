@@ -85,6 +85,7 @@ export function useChunkedTranscription() {
 
 	const start = useCallback(
 		async (onUpdate?: (full: string) => void, _keywords?: string[]) => {
+			void _keywords;
 			if (!supported || !secure) return;
 			onUpdateRef.current = onUpdate ?? null;
 			partsRef.current = [];

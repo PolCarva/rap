@@ -49,3 +49,6 @@ next-env.d.ts
 
 # Estado local compartido de wrangler (D1/DO de dev)
 .wrangler-shared/
+
+
+.qa/shots/

@@ -31,6 +31,7 @@ export async function GET(): Promise<Response> {
 			id: user.id,
 			handle: user.handle,
 			email: user.email,
+			avatarConfig: user.avatarConfig,
 			elo: user.elo,
 			battles: user.battles,
 			wins: user.wins,

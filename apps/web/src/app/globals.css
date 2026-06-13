@@ -22,9 +22,9 @@
 	--red-hot: #ff2d40;
 	--red-deep: #7e0d19;
 	--line: #26262e;
-	--font-display: "Anton", "Arial Narrow", sans-serif;
-	--font-body: "Oswald", sans-serif;
-	--font-mono: "IBM Plex Mono", monospace;
+	--font-display: var(--font-anton, "Anton"), "Arial Narrow", sans-serif;
+	--font-body: var(--font-oswald, "Oswald"), sans-serif;
+	--font-mono: var(--font-ibm-plex-mono, "IBM Plex Mono"), monospace;
 	--background: #08080b;
 	--foreground: #f2ecdd;
 }
@@ -255,9 +255,17 @@ body {
 
 .btn-arena:disabled {
 	background: var(--ink-3);
-	color: #56505a;
+	/* Legible aunque deshabilitado (antes #56505a quedaba casi ilegible). */
+	color: var(--bone-dim);
+	opacity: 0.85;
 	cursor: not-allowed;
 	box-shadow: none;
+}
+
+.btn-arena.needs-check {
+	background: linear-gradient(135deg, var(--red) 0%, #9d1522 100%);
+	color: var(--ink);
+	box-shadow: 6px 6px 0 rgba(232, 25, 44, 0.12), 0 0 34px rgba(232, 25, 44, 0.16);
 }
 
 .btn-ghost {
@@ -916,10 +924,11 @@ body {
 	padding: 0 6px;
 }
 
-/* Fighter timer */
+/* Fighter timer: bajo la placa de nombre, en la esquina exterior del panel,
+   lejos del banner de turno centrado (que antes lo tapaba). */
 .fighter-timer {
 	position: absolute;
-	top: 70px;
+	top: 200px;
 	z-index: 8;
 	font-family: var(--font-display);
 	font-size: clamp(26px, 3vw, 44px);
@@ -931,11 +940,13 @@ body {
 }
 
 .fighter.me .fighter-timer {
-	right: 26px;
+	left: 26px;
+	right: auto;
 }
 
 .fighter.rival-side .fighter-timer {
-	left: 26px;
+	right: 26px;
+	left: auto;
 }
 
 .fighter.active .fighter-timer {
@@ -1071,11 +1082,14 @@ body {
 	pointer-events: auto;
 }
 
-/* Controles del turno propio: sobre MI panel (mitad izquierda en desktop). */
+/* Controles del turno propio: anclados a la esquina inferior izquierda de MI
+   panel, fuera del centro donde vive la zona de palabras (no se pisan). */
 .fighter-controls.mine {
-	left: 0;
-	right: 50%;
+	left: 26px;
+	right: auto;
 	bottom: 20px;
+	justify-content: flex-start;
+	padding: 0;
 	z-index: 15;
 }
 
@@ -1253,6 +1267,9 @@ body {
 	z-index: 22;
 	text-align: center;
 	min-width: 280px;
+	max-width: min(92vw, 540px);
+	/* Cartel informativo: nunca debe robar clics a los botones del turno. */
+	pointer-events: none;
 }
 
 .prompt-label {
@@ -1292,7 +1309,17 @@ body {
 .prompt-word .pw-sep {
 	color: var(--bone-dim);
 	opacity: 0.5;
-	margin: 0 0.35em;
+	/* El gap lo dan los espacios " · " (que además permiten cortar línea). */
+	margin: 0 0.1em;
+}
+
+.prompt-zone.concepts .prompt-word {
+	border-bottom-color: rgba(125, 249, 203, 0.78);
+	box-shadow: 0 0 32px rgba(125, 249, 203, 0.08);
+}
+
+.prompt-zone.concepts .prompt-label {
+	color: rgba(125, 249, 203, 0.82);
 }
 
 /* Quién abre, debajo del número de la cuenta atrás. Late al tempo del beat
@@ -2221,6 +2248,9 @@ body {
 	font-size: clamp(46px, 8vw, 110px);
 	line-height: 0.86;
 	text-transform: uppercase;
+	padding-block: 2px;
+	overflow: hidden;
+	height: 100%;
 }
 
 .cine-h2 em {
@@ -2751,8 +2781,11 @@ a.rk-row:hover {
 
 .judges-scene {
 	position: relative;
+	z-index: 0;
 	width: 100%;
 	height: clamp(180px, 26vh, 250px);
+	/* Escena decorativa: nunca captura clics ni se pinta sobre los textos. */
+	pointer-events: none;
 }
 
 /* Halo de escenario detrás del jurado: separa las figuras del fondo negro. */
@@ -2777,6 +2810,7 @@ a.rk-row:hover {
 	grid-template-columns: repeat(3, 1fr);
 	gap: 8px;
 	margin-top: -6px;
+	z-index: 1;
 }
 
 .judge-vote-label {
@@ -3565,6 +3599,50 @@ a.rk-row:hover {
 	padding: 10px 18px;
 }
 
+.launch-toast {
+	position: relative;
+	width: min(680px, 100%);
+	background:
+		linear-gradient(90deg, rgba(232, 25, 44, 0.18), rgba(242, 236, 221, 0.045)),
+		rgba(8, 8, 11, 0.94);
+	border: 1px solid rgba(232, 25, 44, 0.62);
+	border-left: 5px solid var(--red);
+	box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38), 0 0 38px rgba(232, 25, 44, 0.18);
+	color: var(--bone);
+	padding: 14px 18px 13px;
+	transform: skewX(-4deg);
+	animation: toast-hit 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.launch-toast > * {
+	display: block;
+	transform: skewX(4deg);
+}
+
+.launch-toast strong {
+	font-family: var(--font-display);
+	font-size: 20px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--red);
+	line-height: 1;
+}
+
+.launch-toast span {
+	margin-top: 6px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.16em;
+	line-height: 1.45;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+}
+
+@keyframes toast-hit {
+	0% { opacity: 0; transform: translateY(10px) skewX(-4deg); filter: blur(4px); }
+	100% { opacity: 1; transform: translateY(0) skewX(-4deg); filter: blur(0); }
+}
+
 /* ---- Beat + judges ---- */
 .turn-beat {
 	margin-top: 6px;
@@ -3586,6 +3664,10 @@ a.rk-row:hover {
 }
 
 .judgment-kicker {
+	position: relative;
+	/* Va antes del canvas en el DOM: lo elevo para que el halo del jurado no
+	   se pinte sobre este texto. */
+	z-index: 1;
 	font-family: var(--font-mono);
 	font-size: 12px;
 	letter-spacing: 0.3em;
@@ -3707,6 +3789,13 @@ a.rk-row:hover {
 .result-title.stage-suspense {
 	color: var(--bone-dim) !important;
 	text-shadow: none;
+	/* En suspenso el "..." va discreto y en mono: en la display (Anton) salían
+	   tres bloques pesados que parecían glifos rotos. */
+	font-family: var(--font-mono);
+	font-size: clamp(28px, 5vw, 48px);
+	letter-spacing: 0.35em;
+	opacity: 0.55;
+	transform: none;
 }
 
 .elo-impact {
@@ -3826,6 +3915,178 @@ a.rk-row:hover {
 	color: rgba(125, 249, 203, 0.82);
 }
 
+/* ---- Avatar editor ---- */
+.avatar-editor {
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	background: rgba(255, 255, 255, 0.02);
+	padding: 18px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.avatar-editor-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.avatar-editor-random {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: rgba(255, 255, 255, 0.6);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	background: rgba(255, 255, 255, 0.03);
+	padding: 7px 12px;
+	cursor: pointer;
+	transition: border-color 0.15s, color 0.15s;
+}
+
+.avatar-editor-random:hover {
+	border-color: rgba(232, 25, 44, 0.6);
+	color: var(--bone);
+}
+
+.avatar-editor-body {
+	display: grid;
+	grid-template-columns: 200px 1fr;
+	gap: 20px;
+	align-items: start;
+}
+
+.avatar-editor-preview {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	padding: 16px;
+	border: 1px solid rgba(255, 255, 255, 0.07);
+	background: rgba(0, 0, 0, 0.25);
+}
+
+.avatar-editor-name {
+	font-family: var(--font-display, var(--font-mono));
+	font-weight: 900;
+	letter-spacing: 0.04em;
+	font-size: 20px;
+	text-align: center;
+	word-break: break-word;
+	color: var(--bone);
+}
+
+.avatar-editor-controls {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	min-width: 0;
+}
+
+.avatar-cat-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.avatar-cat-tabs button {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: rgba(255, 255, 255, 0.5);
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	background: rgba(255, 255, 255, 0.02);
+	padding: 7px 12px;
+	cursor: pointer;
+	transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.avatar-cat-tabs button:hover {
+	color: var(--bone);
+	border-color: rgba(255, 255, 255, 0.28);
+}
+
+.avatar-cat-tabs button.active {
+	color: #fff;
+	border-color: var(--red);
+	background: rgba(232, 25, 44, 0.16);
+}
+
+.avatar-option-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+	gap: 8px;
+}
+
+.avatar-option {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+	padding: 10px 6px;
+	border: 1px solid rgba(255, 255, 255, 0.09);
+	background: rgba(0, 0, 0, 0.22);
+	cursor: pointer;
+	transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+
+.avatar-option:hover {
+	border-color: rgba(255, 255, 255, 0.3);
+	transform: translateY(-1px);
+}
+
+.avatar-option.selected {
+	border-color: var(--red);
+	background: rgba(232, 25, 44, 0.12);
+	box-shadow: inset 0 0 0 1px rgba(232, 25, 44, 0.5);
+}
+
+.avatar-option span {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: rgba(255, 255, 255, 0.62);
+	text-align: center;
+	line-height: 1.1;
+}
+
+.avatar-option.selected span {
+	color: #fff;
+}
+
+.avatar-editor-footer {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	flex-wrap: wrap;
+}
+
+.avatar-editor-save {
+	padding: 12px 22px;
+	font-size: 14px;
+}
+
+.avatar-editor-hint {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: rgba(255, 255, 255, 0.4);
+}
+
+@media (max-width: 640px) {
+	.avatar-editor-body {
+		grid-template-columns: 1fr;
+	}
+	.avatar-editor-preview {
+		max-width: 240px;
+		margin: 0 auto;
+	}
+}
+
 /* ---- Backoffice ---- */
 .backoffice-shell {
 	width: min(1100px, 100%);
@@ -3896,7 +4157,48 @@ a.rk-row:hover {
 }
 
 .backoffice-check input {
-	width: auto;
+	/* Tiñe el check nativo con el rojo del tema (antes azul del browser). */
+	accent-color: var(--red);
+	width: 16px;
+	height: 16px;
+	cursor: pointer;
+}
+
+.backoffice-file {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	border: 1px dashed rgba(255, 255, 255, 0.22);
+	background: rgba(255, 255, 255, 0.02);
+	padding: 14px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+	cursor: pointer;
+}
+
+.backoffice-file::after {
+	content: "Elegir archivo";
+	border: 1px solid var(--line);
+	padding: 8px 10px;
+	color: var(--bone);
+	white-space: nowrap;
+}
+
+.backoffice-file:hover {
+	border-color: rgba(125, 249, 203, 0.5);
+	color: var(--bone);
+}
+
+.backoffice-file input {
+	position: absolute;
+	inset: 0;
+	opacity: 0;
+	cursor: pointer;
 }
 
 .backoffice-actions,
@@ -4045,12 +4347,16 @@ a.rk-row:hover {
 		right: 0;
 	}
 
+	/* Controles del turno: bien arriba del divisor (VS) para no pisarlo. */
 	.fighter-controls.mine {
-		bottom: calc(50% + 14px);
+		left: 0;
+		bottom: calc(50% + 48px);
+		justify-content: center;
+		padding: 0 18px;
 	}
 
 	.verse-draft-zone {
-		bottom: calc(50% + 64px);
+		bottom: calc(50% + 96px);
 	}
 
 	.vs-badge {
@@ -4062,6 +4368,12 @@ a.rk-row:hover {
 		top: 12px;
 		width: 100%;
 		padding: 0 12px;
+	}
+
+	/* El nombre del beat ocupa demasiado en el HUD angosto y pisaba ABANDONAR
+	   y la placa de nombre; ya aparece en el splash VS. */
+	.turn-beat {
+		display: none;
 	}
 
 	.conn-banner {
@@ -4079,6 +4391,13 @@ a.rk-row:hover {
 	.prompt-word {
 		font-size: clamp(16px, 5vw, 26px);
 		padding: 6px 14px;
+	}
+
+	/* En pantallas angostas el cartel de palabras envuelve en varias líneas en
+	   vez de desbordar y cortarse a los lados. */
+	.prompt-zone .prompt-word {
+		white-space: normal;
+		overflow-wrap: anywhere;
 	}
 }
 

@@ -9,25 +9,29 @@ import type { RapSession } from "./useRapSession";
 
 interface Props {
 	error: string | null;
+	initialModality: ModalityId;
 	media: MediaController;
 	session: RapSession;
 	onSearch: (
 		identity: { isGuest: true; name: string } | { isGuest: false; name: string; email: string | null },
 		modality: ModalityId,
 		beatId: string | null,
+		devBot: boolean,
 	) => void;
 }
 
 const DIFF_LABELS: Record<string, string> = {
 	"4x4": "NIVEL: MEDIO",
 	"minuto-libre": "NIVEL: ABIERTO",
-	palabras: "NIVEL: DIFÍCIL",
+	palabras: "NIVEL: RIMAS",
+	hard: "NIVEL: HARD",
+	easy: "NIVEL: EASY",
 	deconceptos: "NIVEL: CONCEPTUAL",
 };
 
-export function SetupScreen({ error, media, session, onSearch }: Props) {
+export function SetupScreen({ error, initialModality, media, session, onSearch }: Props) {
 	const counts = usePlayerCounts();
-	const [modality, setModality] = useState<ModalityId>("minuto-libre");
+	const [modality, setModality] = useState<ModalityId>(initialModality);
 	const [beats, setBeats] = useState<Beat[]>([]);
 	const [beatId, setBeatId] = useState<string>("random");
 	const [beatState, setBeatState] = useState<"loading" | "ready" | "empty">("loading");
@@ -35,15 +39,30 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 	const [asGuest, setAsGuest] = useState(session.isGuest);
 	const [accountAka, setAccountAka] = useState(session.isGuest ? "" : session.name);
 	const [guestAka, setGuestAka] = useState(session.isGuest ? session.name : "");
+	const [devBot, setDevBot] = useState(false);
+	const [launchToast, setLaunchToast] = useState<{ title: string; body: string } | null>(null);
 	const videoRef = useRef<HTMLVideoElement>(null);
+	const toastTimer = useRef<number | null>(null);
 
 	const isLoggedIn = !session.isGuest && !!session.userId;
+	const showDevBot = process.env.NODE_ENV === "development";
 
 	useEffect(() => {
 		setAsGuest(!isLoggedIn);
 		if (isLoggedIn) setAccountAka(session.name);
 		if (session.isGuest) setGuestAka(session.name);
 	}, [isLoggedIn, session.isGuest, session.name]);
+
+	useEffect(() => {
+		setModality(initialModality);
+	}, [initialModality]);
+
+	useEffect(
+		() => () => {
+			if (toastTimer.current) window.clearTimeout(toastTimer.current);
+		},
+		[],
+	);
 
 	useEffect(() => {
 		let active = true;
@@ -71,6 +90,10 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 	const currentAka = asGuest ? guestAka : accountAka;
 	const canUseAccount = isLoggedIn && !asGuest;
 	const canEnter = currentAka.trim().length > 0;
+	const stream = media.stream.current;
+	const hasCamera = media.status === "ready" && !!stream?.getVideoTracks().some((track) => track.readyState === "live");
+	const hasMicrophone = media.status === "ready" && !!stream?.getAudioTracks().some((track) => track.readyState === "live");
+	const mediaState = { hasCamera, hasMicrophone, ready: hasCamera && hasMicrophone };
 	// Beats de la DB (backoffice) + los sintetizados de la casa: siempre hay pista.
 	const allBeats = useMemo(() => [...beats, ...SYNTH_BEATS], [beats]);
 	const selectedBeat = useMemo(() => allBeats.find((beat) => beat.id === beatId) ?? null, [allBeats, beatId]);
@@ -80,24 +103,62 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 		else void beatPreview.play(beat, 0.5);
 	};
 
+	const showLaunchToast = (title: string, body: string) => {
+		if (toastTimer.current) window.clearTimeout(toastTimer.current);
+		setLaunchToast({ title, body });
+		toastTimer.current = window.setTimeout(() => setLaunchToast(null), 4600);
+	};
+
+	const permissionLabel = (ready: boolean) => {
+		if (ready) return "LIVE";
+		if (media.status === "requesting") return "PIDIENDO";
+		if (media.status === "denied") return "BLOQUEADO";
+		return "PENDIENTE";
+	};
+
 	const handleSearch = () => {
 		const name = currentAka.trim();
 		const selectedBeatId = beatId === "random" ? null : beatId;
+		if (!name) {
+			showLaunchToast("FALTA TU AKA", "Escribí tu AKA de guerra antes de buscar rival.");
+			return;
+		}
+		if (!mediaState.ready) {
+			const missing = [
+				!mediaState.hasMicrophone ? "micrófono" : null,
+				!mediaState.hasCamera ? "cámara" : null,
+			].filter(Boolean);
+			const body =
+				media.status === "denied"
+					? `El navegador bloqueó ${missing.join(" + ")}. Revisá permisos y activá la señal en el paso 04.`
+					: media.status === "requesting"
+						? "El navegador todavía está pidiendo permisos. Aceptá micrófono y cámara para entrar."
+						: `Activá ${missing.join(" + ")} en el paso 04 antes de buscar rival.`;
+			showLaunchToast(`FALTA ${missing.map((item) => item!.toUpperCase()).join(" + ")}`, body);
+			return;
+		}
 		beatPreview.stop();
-		if (!canEnter) return;
 		if (canUseAccount) {
-			onSearch({ isGuest: false, name, email: session.email }, modality, selectedBeatId);
+			onSearch({ isGuest: false, name, email: session.email }, modality, selectedBeatId, showDevBot && devBot);
 		} else {
-			onSearch({ isGuest: true, name }, modality, selectedBeatId);
+			onSearch({ isGuest: true, name }, modality, selectedBeatId, showDevBot && devBot);
 		}
 	};
 
 	const launchSummary = () => {
 		if (!canEnter) return "FALTA TU AKA DE GUERRA";
+		if (!mediaState.ready) {
+			const missing = [
+				!mediaState.hasMicrophone ? "MIC" : null,
+				!mediaState.hasCamera ? "CÁMARA" : null,
+			].filter(Boolean);
+			return `ACTIVÁ ${missing.join(" + ")} PARA BUSCAR RIVAL`;
+		}
 		const m = MODALITIES[modality];
 		const beat = selectedBeat ? selectedBeat.name : beatId === "random" ? "BEAT RANDOM" : "SIN BEAT";
 		const rank = canUseAccount ? "RANKEADA" : "INVITADO";
-		return `${currentAka.toUpperCase()} · ${m.name.toUpperCase()} · ${beat.toUpperCase()} · ${rank}`;
+		const rival = showDevBot && devBot ? "BOT DEV" : rank;
+		return `${currentAka.toUpperCase()} · ${m.name.toUpperCase()} · ${beat.toUpperCase()} · ${rival}`;
 	};
 
 	return (
@@ -235,14 +296,14 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 				</div>
 			</section>
 
-			<section className={`config-step${media.status === "ready" ? " done" : ""}`}>
+			<section className={`config-step${mediaState.ready ? " done" : ""}`}>
 				<div className="config-step-num">04</div>
 				<div>
 					<h2 className="config-step-title">Mic + Cámara</h2>
 					<div className="config-step-hint">Sin señal no hay batalla</div>
 					<div className="media-setup-grid">
 						<div className="cam-box">
-							{media.status === "ready" ? (
+							{mediaState.hasCamera ? (
 								<video ref={videoRef} autoPlay muted playsInline />
 							) : (
 								<div className="cam-no-signal">
@@ -250,7 +311,7 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 									<div>ESPERANDO PERMISOS DE CÁMARA</div>
 								</div>
 							)}
-							{media.status === "ready" && (
+							{mediaState.hasCamera && (
 								<div className="cam-preview-label">
 									<span className="arena-live-dot" style={{ margin: 0 }} />
 									PREVIEW
@@ -259,11 +320,11 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 						</div>
 						<div style={{ display: "flex", flexDirection: "column", gap: 16, justifyContent: "center" }}>
 							<div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-								<div className={`perm-pill${media.status === "ready" ? " ok" : ""}`}>
-									CÁMARA <span className="perm-state">{media.status === "ready" ? "LIVE" : "PENDIENTE"}</span>
+								<div className={`perm-pill${mediaState.hasCamera ? " ok" : ""}`}>
+									CÁMARA <span className="perm-state">{permissionLabel(mediaState.hasCamera)}</span>
 								</div>
-								<div className={`perm-pill${media.status === "ready" ? " ok" : ""}`}>
-									MICRÓFONO <span className="perm-state">{media.status === "ready" ? "LIVE" : "PENDIENTE"}</span>
+								<div className={`perm-pill${mediaState.hasMicrophone ? " ok" : ""}`}>
+									MICRÓFONO <span className="perm-state">{permissionLabel(mediaState.hasMicrophone)}</span>
 								</div>
 							</div>
 							{media.status === "ready" ? (
@@ -280,7 +341,7 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 									<span>{media.status === "requesting" ? "PIDIENDO PERMISOS" : "ACTIVAR MIC + CÁMARA"}</span>
 								</button>
 							)}
-							{media.status === "ready" && (
+							{mediaState.hasMicrophone && (
 								<div>
 									<div className="mic-label">NIVEL MIC</div>
 									<div className="mic-meter">
@@ -295,7 +356,28 @@ export function SetupScreen({ error, media, session, onSearch }: Props) {
 
 			<section className="launch-panel">
 				{error && <p className="launch-error">{error}</p>}
-				<button disabled={!canEnter} onClick={handleSearch} className="btn-arena" style={{ fontSize: "clamp(22px, 2.4vw, 32px)", padding: "22px 64px" }}>
+				{launchToast && (
+					<div className="launch-toast" role="alert" aria-live="assertive">
+						<strong>{launchToast.title}</strong>
+						<span>{launchToast.body}</span>
+					</div>
+				)}
+				{showDevBot && (
+					<div className="identity-switch" role="tablist" aria-label="Rival de prueba">
+						<button className={!devBot ? "active" : ""} onClick={() => setDevBot(false)}>
+							Rival real
+						</button>
+						<button className={devBot ? "active" : ""} onClick={() => setDevBot(true)}>
+							Bot dev
+						</button>
+					</div>
+				)}
+				<button
+					data-needs-check={!canEnter || !mediaState.ready ? "true" : undefined}
+					onClick={handleSearch}
+					className={`btn-arena${canEnter && mediaState.ready ? "" : " needs-check"}`}
+					style={{ fontSize: "clamp(22px, 2.4vw, 32px)", padding: "22px 64px" }}
+				>
 					<span>BUSCAR RIVAL</span>
 				</button>
 				<div className="launch-summary">{launchSummary()}</div>

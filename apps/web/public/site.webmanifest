@@ -1,0 +1,49 @@
+{
+	"name": "Rap Arena - Batallas de freestyle online",
+	"short_name": "Rap Arena",
+	"description": "Batallas de freestyle online 1 vs 1 con beats, ranking ELO y juez IA.",
+	"lang": "es-UY",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"orientation": "portrait",
+	"background_color": "#08080b",
+	"theme_color": "#08080b",
+	"categories": ["music", "games", "entertainment"],
+	"icons": [
+		{
+			"src": "/icon-192.png",
+			"sizes": "192x192",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/icon-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/maskable-icon.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "maskable"
+		}
+	],
+	"shortcuts": [
+		{
+			"name": "Entrar a la arena",
+			"short_name": "Arena",
+			"description": "Buscar rival y empezar una batalla de freestyle.",
+			"url": "/arena",
+			"icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+		},
+		{
+			"name": "Ver ranking",
+			"short_name": "Ranking",
+			"description": "Tabla global de MCs por ELO.",
+			"url": "/ranking",
+			"icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+		}
+	]
+}

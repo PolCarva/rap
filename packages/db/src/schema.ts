@@ -12,6 +12,7 @@ export const users = sqliteTable("users", {
 	handle: text("handle").notNull().unique(),
 	email: text("email").unique(),
 	avatarUrl: text("avatar_url"),
+	avatarConfig: text("avatar_config"),
 	authProvider: text("auth_provider").notNull().default("guest"),
 	isGuest: integer("is_guest", { mode: "boolean" }).notNull().default(true),
 	passwordHash: text("password_hash"),

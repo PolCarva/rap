@@ -5,7 +5,7 @@ import { z } from "zod";
  * cuántos turnos rapea cada jugador, cuánto dura cada turno, y si el sistema
  * inyecta palabras/conceptos obligatorios que el juez premia.
  */
-export const MODALITY_IDS = ["4x4", "minuto-libre", "palabras", "deconceptos"] as const;
+export const MODALITY_IDS = ["4x4", "minuto-libre", "palabras", "hard", "easy", "deconceptos"] as const;
 
 export const modalityIdSchema = z.enum(MODALITY_IDS);
 export type ModalityId = z.infer<typeof modalityIdSchema>;
@@ -27,8 +27,13 @@ export interface Modality {
 	turnBars?: number;
 	/** Si true, el sistema sortea palabras/conceptos obligatorios al iniciar. */
 	injectsWords: boolean;
-	/** Cantidad de palabras a inyectar cuando injectsWords es true. */
+	/** Cantidad de palabras por prompt estático, o por tanda en modos dinámicos. */
 	wordCount: number;
+	wordSource?: "words" | "concepts" | "rhymes";
+	wordCadence?:
+		| { type: "static" }
+		| { type: "bars"; everyBars: number; perRole: boolean }
+		| { type: "seconds"; intervalSec: number; perRole: boolean };
 }
 
 export const MODALITIES: Record<ModalityId, Modality> = {
@@ -53,12 +58,37 @@ export const MODALITIES: Record<ModalityId, Modality> = {
 	},
 	palabras: {
 		id: "palabras",
-		name: "Palabras",
-		description: "Se sortean palabras obligatorias que hay que incluir y rimar.",
+		name: "Palabras que rimen",
+		description: "Cada cuatro compases cae una tanda nueva de palabras con la misma rima.",
+		rounds: 2,
+		turnDurationSec: 40,
+		turnBars: 16,
+		injectsWords: true,
+		wordCount: 4,
+		wordSource: "rhymes",
+		wordCadence: { type: "bars", everyBars: 4, perRole: true },
+	},
+	hard: {
+		id: "hard",
+		name: "Hard",
+		description: "Una palabra distinta cada cinco segundos para cada MC.",
 		rounds: 2,
 		turnDurationSec: 40,
 		injectsWords: true,
-		wordCount: 4,
+		wordCount: 1,
+		wordSource: "words",
+		wordCadence: { type: "seconds", intervalSec: 5, perRole: true },
+	},
+	easy: {
+		id: "easy",
+		name: "Easy",
+		description: "Una palabra distinta cada diez segundos para cada MC.",
+		rounds: 2,
+		turnDurationSec: 40,
+		injectsWords: true,
+		wordCount: 1,
+		wordSource: "words",
+		wordCadence: { type: "seconds", intervalSec: 10, perRole: true },
 	},
 	deconceptos: {
 		id: "deconceptos",
@@ -68,6 +98,8 @@ export const MODALITIES: Record<ModalityId, Modality> = {
 		turnDurationSec: 45,
 		injectsWords: true,
 		wordCount: 2,
+		wordSource: "concepts",
+		wordCadence: { type: "static" },
 	},
 };
 
@@ -84,6 +116,21 @@ export const BEATS_PER_BAR = 4;
 /** Duración de un compás (4 tiempos) en ms. */
 export function barMs(bpm: number): number {
 	return (60_000 / bpm) * BEATS_PER_BAR;
+}
+
+/** Intervalo entre cambios de prompt para modos dinámicos. */
+export function promptIntervalMs(mod: Modality, bpm: number | null | undefined): number | null {
+	if (!mod.wordCadence || mod.wordCadence.type === "static") return null;
+	if (mod.wordCadence.type === "seconds") return mod.wordCadence.intervalSec * 1000;
+	const beat = bpm ?? 90;
+	return barMs(beat) * mod.wordCadence.everyBars;
+}
+
+/** Cantidad de tandas de palabras que tiene cada turno de un MC. */
+export function promptBatchesPerTurn(mod: Modality, bpm: number | null | undefined): number {
+	const interval = promptIntervalMs(mod, bpm);
+	if (!interval) return mod.injectsWords ? 1 : 0;
+	return Math.max(1, Math.ceil(turnDurationMs(mod, bpm) / interval));
 }
 
 /**

@@ -49,6 +49,8 @@ export const mmClientMessageSchema = z.discriminatedUnion("kind", [
 		sessionId: z.string().min(1).max(80).optional(),
 		userId: z.string().min(1).max(80).nullable().optional(),
 		isGuest: z.boolean().optional(),
+		/** Solo dev/local: crea una batalla inmediata contra un bot. */
+		devBot: z.boolean().optional(),
 		/** Token firmado por la web que respalda el userId (modo rankeado). */
 		authToken: z.string().max(600).nullable().optional(),
 	}),
@@ -126,6 +128,7 @@ export const playerStateSchema = z.object({
 	sessionId: z.string().nullable().default(null),
 	userId: z.string().nullable().default(null),
 	isGuest: z.boolean().default(true),
+	isBot: z.boolean().default(false),
 	connected: z.boolean(),
 	ready: z.boolean(),
 	/** Pidió revancha en la pantalla de resultado. */
@@ -206,6 +209,12 @@ export const battleSummarySchema = z.object({
 });
 export type BattleSummary = z.infer<typeof battleSummarySchema>;
 
+export const wordPlanSchema = z.object({
+	p1: z.array(z.array(z.string())),
+	p2: z.array(z.array(z.string())),
+});
+export type WordPlanState = z.infer<typeof wordPlanSchema>;
+
 export const rankingEntrySchema = z.object({
 	id: z.string(),
 	handle: z.string(),
@@ -222,6 +231,7 @@ export const battleStateSchema = z.object({
 	battleId: z.string(),
 	modality: modalityIdSchema,
 	words: z.array(z.string()),
+	wordPlan: wordPlanSchema.nullable().default(null),
 	beat: beatSchema.nullable(),
 	phase: phaseSchema,
 	/** Ronda actual (1-indexed). */
@@ -230,6 +240,8 @@ export const battleStateSchema = z.object({
 	totalRounds: z.number().int(),
 	/** Quién rapea ahora (solo válido en fase "turn"). */
 	activeRole: roleSchema.nullable(),
+	/** Epoch ms en que empezó el turno actual, para prompts por tiempo/compás. */
+	turnStartedAt: z.number().nullable().default(null),
 	/** Epoch ms en que termina el turno/cuenta actual, para timers del cliente. */
 	deadline: z.number().nullable(),
 	players: z.object({ p1: playerStateSchema, p2: playerStateSchema }),
@@ -256,6 +268,7 @@ export const roomInitSchema = z.object({
 	battleId: z.string(),
 	modality: modalityIdSchema,
 	words: z.array(z.string()),
+	wordPlan: wordPlanSchema.nullable().optional(),
 	beat: beatSchema.nullable().optional(),
 	players: z.object({
 		p1: z.union([z.string(), playerIdentitySchema]),

@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { avatarFromSeed } from "@rap/shared";
 import { useRapSession } from "@/components/battle/useRapSession";
+import { RapperAvatar } from "@/components/avatar/RapperAvatar";
 
 type Mode = "login" | "signup";
 
@@ -11,12 +13,15 @@ export function AuthBar() {
 	const [mode, setMode] = useState<Mode | null>(null);
 
 	if (!session.session.isGuest && session.session.userId) {
+		const profileSlug = session.session.name ? session.session.name.toLowerCase() : session.session.userId;
 		return (
 			<div className="auth-bar">
-				<Link href={`/perfil/${encodeURIComponent(session.session.userId)}`} className="auth-profile">
-					<span className="rapper-avatar mini" aria-hidden="true">
-						<span />
-					</span>
+				<Link href={`/perfil/${encodeURIComponent(profileSlug)}`} className="auth-profile">
+					<RapperAvatar
+						config={session.session.avatarConfig ?? avatarFromSeed(session.session.userId)}
+						size={32}
+						ring={false}
+					/>
 					<span>{session.session.name || "Perfil"}</span>
 				</Link>
 				<button onClick={session.logout} className="auth-link logout buttonish">

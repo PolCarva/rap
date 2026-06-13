@@ -2,7 +2,7 @@
 // Requiere `npm run dev:realtime` en otra terminal.
 import { spawn } from "node:child_process";
 
-const MODALITIES = ["minuto-libre", "4x4", "palabras", "deconceptos"];
+const MODALITIES = ["minuto-libre", "4x4", "palabras", "hard", "easy", "deconceptos"];
 
 function runSmoke(env) {
 	return new Promise((resolve, reject) => {

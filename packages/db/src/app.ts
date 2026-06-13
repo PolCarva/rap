@@ -118,6 +118,7 @@ export interface ProfileRow extends RankingRow {
 	isGuest: number;
 	email: string | null;
 	avatarUrl: string | null;
+	avatarConfig: string | null;
 	createdAt: number;
 	lastSeenAt: number;
 	lastBattleResult: string | null;
@@ -127,6 +128,7 @@ export interface UserAuthRow {
 	id: string;
 	handle: string;
 	email: string | null;
+	avatarConfig: string | null;
 	isGuest: number;
 	passwordHash: string | null;
 	elo: number;
@@ -290,6 +292,23 @@ export async function updateUserHandle(
 	}
 }
 
+export async function updateUserAvatar(
+	db: D1Database,
+	userId: string,
+	avatarConfigJson: string,
+): Promise<{ ok: true } | { error: string }> {
+	try {
+		const result = await db
+			.prepare(`UPDATE users SET avatar_config = ?, last_seen_at = ? WHERE id = ?`)
+			.bind(avatarConfigJson, Date.now(), userId)
+			.run();
+		if (!result.success) return { error: "No se pudo actualizar el avatar" };
+		return { ok: true };
+	} catch {
+		return { error: "No se pudo actualizar el avatar" };
+	}
+}
+
 export async function registerUser(
 	db: D1Database,
 	input: { name: string; email: string; passwordHash: string },
@@ -318,7 +337,7 @@ export async function registerUser(
 export async function getUserByEmail(db: D1Database, email: string): Promise<UserAuthRow | null> {
 	return db
 		.prepare(
-			`SELECT id, handle, email, is_guest AS isGuest, password_hash AS passwordHash,
+			`SELECT id, handle, email, avatar_config AS avatarConfig, is_guest AS isGuest, password_hash AS passwordHash,
 				elo, battles, wins, draws, losses, current_streak AS currentStreak, best_streak AS bestStreak
 			 FROM users WHERE email = ? LIMIT 1`,
 		)
@@ -329,7 +348,7 @@ export async function getUserByEmail(db: D1Database, email: string): Promise<Use
 export async function getUserById(db: D1Database, id: string): Promise<UserAuthRow | null> {
 	return db
 		.prepare(
-			`SELECT id, handle, email, is_guest AS isGuest, password_hash AS passwordHash,
+			`SELECT id, handle, email, avatar_config AS avatarConfig, is_guest AS isGuest, password_hash AS passwordHash,
 				elo, battles, wins, draws, losses, current_streak AS currentStreak, best_streak AS bestStreak
 			 FROM users WHERE id = ? LIMIT 1`,
 		)
@@ -450,7 +469,9 @@ export async function recordBattleStart(db: D1Database, input: BattlePersistInpu
 				player2_session_id = excluded.player2_session_id,
 				player1_name = excluded.player1_name,
 				player2_name = excluded.player2_name,
-				started_at = COALESCE(battles.started_at, excluded.started_at)`,
+				started_at = COALESCE(battles.started_at, excluded.started_at)
+			 WHERE battles.status NOT IN ('finished', 'aborted')
+			   AND battles.winner IS NULL`,
 		)
 		.bind(
 			input.id,
@@ -476,6 +497,32 @@ export async function recordBattleAbort(db: D1Database, battleId: string): Promi
 	await db
 		.prepare(`UPDATE battles SET status = 'aborted', ended_at = ? WHERE id = ? AND status = 'active'`)
 		.bind(Date.now(), battleId)
+		.run();
+}
+
+/**
+ * Red de seguridad idempotente: cierra la fila de la batalla si quedó 'active'
+ * (p. ej. si `recordBattleResult` falló y solo se logueó el error). NO toca
+ * stats ni ELO —eso ya lo hizo recordBattleResult—; solo garantiza que ninguna
+ * batalla con veredicto quede "en curso" para siempre. El `WHERE status='active'`
+ * la hace segura de llamar varias veces.
+ */
+export async function finalizeBattleStatus(
+	db: D1Database,
+	battleId: string,
+	result: { winner: "p1" | "p2" | "draw"; scoreP1: number; scoreP2: number; endedAt?: number },
+): Promise<void> {
+	await db
+		.prepare(
+			`UPDATE battles
+			 SET status = 'finished',
+			     winner = COALESCE(winner, ?),
+			     score_p1 = COALESCE(score_p1, ?),
+			     score_p2 = COALESCE(score_p2, ?),
+			     ended_at = COALESCE(ended_at, ?)
+			 WHERE id = ? AND status = 'active'`,
+		)
+		.bind(result.winner, result.scoreP1, result.scoreP2, result.endedAt ?? Date.now(), battleId)
 		.run();
 }
 
@@ -655,7 +702,8 @@ export async function listBattles(db: D1Database, limit = 20): Promise<BattleSum
 				beat_audio_url AS beatAudioUrl,
 				beat_bpm AS beatBpm,
 				winner, score_p1 AS scoreP1, score_p2 AS scoreP2,
-				status, started_at AS startedAt, ended_at AS endedAt
+				CASE WHEN winner IS NOT NULL AND status = 'active' THEN 'finished' ELSE status END AS status,
+				started_at AS startedAt, ended_at AS endedAt
 			 FROM battles
 			 ORDER BY COALESCE(ended_at, started_at, 0) DESC
 			 LIMIT ?`,
@@ -679,9 +727,10 @@ export async function listUserBattles(db: D1Database, userId: string, limit = 30
 				beat_audio_url AS beatAudioUrl,
 				beat_bpm AS beatBpm,
 				winner, score_p1 AS scoreP1, score_p2 AS scoreP2,
-				status, started_at AS startedAt, ended_at AS endedAt
+				CASE WHEN winner IS NOT NULL AND status = 'active' THEN 'finished' ELSE status END AS status,
+				started_at AS startedAt, ended_at AS endedAt
 			 FROM battles
-			 WHERE (player1_id = ? OR player2_id = ?) AND status = 'finished'
+			 WHERE (player1_id = ? OR player2_id = ?) AND (status = 'finished' OR winner IS NOT NULL)
 			 ORDER BY COALESCE(ended_at, started_at, 0) DESC
 			 LIMIT ?`,
 		)
@@ -706,7 +755,7 @@ export async function getModalityStats(db: D1Database, userId: string): Promise<
 export async function getProfile(db: D1Database, id: string): Promise<ProfileRow | null> {
 	return db
 		.prepare(
-			`SELECT id, handle, email, avatar_url AS avatarUrl, is_guest AS isGuest,
+			`SELECT id, handle, email, avatar_url AS avatarUrl, avatar_config AS avatarConfig, is_guest AS isGuest,
 				elo, battles, wins, draws, losses,
 				current_streak AS currentStreak, best_streak AS bestStreak,
 				last_battle_result AS lastBattleResult,

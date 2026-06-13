@@ -1,0 +1,14 @@
+[
+ "[error] Permissions policy violation: encrypted-media is not allowed in this document.",
+ "[warning] Encrypted Media access has been blocked because of a Feature Policy applied to the current document. See https://crbug.com/414348233 for more details.",
+ "[error] Permissions policy violation: encrypted-media is not allowed in this document.",
+ "[warning] Encrypted Media access has been blocked because of a Feature Policy applied to the current document. See https://crbug.com/414348233 for more details.",
+ "[error] Permissions policy violation: encrypted-media is not allowed in this document.",
+ "[warning] Encrypted Media access has been blocked because of a Feature Policy applied to the current document. See https://crbug.com/414348233 for more details.",
+ "[warning] Exception: %s Script error.",
+ "[warning] constructor",
+ "[pageerror] Failed to execute 'createPattern' on 'CanvasRenderingContext2D': The image argument is a canvas element with a width or height of 0.",
+ "[warning] Exception: %s Script error.",
+ "[warning] constructor",
+ "[pageerror] Failed to execute 'createPattern' on 'CanvasRenderingContext2D': The image argument is a canvas element with a width or height of 0."
+]

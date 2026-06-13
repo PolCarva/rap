@@ -4,7 +4,11 @@ import {
 	CRITERIA,
 	CRITERIA_LABELS,
 	MODALITIES,
+	promptBatchesPerTurn,
+	promptIntervalMs,
 	roundStarter,
+	turnDurationMs,
+	wordBatchesForRole,
 	type BattleState,
 	type PlayerVerdict,
 	type RtcSignal,
@@ -29,7 +33,7 @@ interface Props {
 	myRole: Role;
 	opponentCaption: string;
 	media: MediaController;
-	incomingSignal: { role: Role; signal: RtcSignal; seq: number } | null;
+	incomingSignal: { role: Role; signal: RtcSignal; seq: number; peerKey: string | null } | null;
 	reconnecting?: boolean;
 	onReady: () => void;
 	onCaption: (text: string) => void;
@@ -41,15 +45,17 @@ interface Props {
 	onRequeue?: (() => void) | null;
 }
 
-function useRemaining(deadline: number | null): number | null {
+function useBattleClock(deadline: number | null): { remaining: number | null; now: number } {
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		if (deadline === null) return;
+		// Refrescar de inmediato: si `now` quedó congelado de una fase sin
+		// deadline, el primer render mostraría un número inflado por ~200ms.
+		setNow(Date.now());
 		const id = setInterval(() => setNow(Date.now()), 200);
 		return () => clearInterval(id);
 	}, [deadline]);
-	if (deadline === null) return null;
-	return Math.max(0, Math.ceil((deadline - now) / 1000));
+	return { remaining: deadline === null ? null : Math.max(0, Math.ceil((deadline - now) / 1000)), now };
 }
 
 /** Minúsculas y sin tildes, para chequear palabras usadas en vivo. */
@@ -58,6 +64,13 @@ function normalizeWords(s: string): string {
 		.toLowerCase()
 		.normalize("NFD")
 		.replace(/[\u0300-\u036f]/g, "");
+}
+
+function promptWordsForRound(battle: BattleState, role: Role, batchesPerTurn: number): string[] {
+	const batches = wordBatchesForRole(battle.wordPlan, role);
+	if (batches.length === 0 || battle.round <= 0) return battle.words;
+	const start = (battle.round - 1) * batchesPerTurn;
+	return batches.slice(start, start + batchesPerTurn).flat();
 }
 
 /**
@@ -148,8 +161,9 @@ export function BattleStage({
 	const oppRole: Role = myRole === "p1" ? "p2" : "p1";
 	const me = battle.players[myRole];
 	const opp = battle.players[oppRole];
+	const opponentIsBot = opp.isBot || (opp.sessionId?.startsWith("bot:") ?? false);
 	const isMyTurn = battle.phase === "turn" && battle.activeRole === myRole;
-	const remaining = useRemaining(battle.deadline);
+	const { remaining, now } = useBattleClock(battle.deadline);
 
 	const {
 		supported: dgSupported,
@@ -178,9 +192,10 @@ export function BattleStage({
 	const submittedTurn = useRef<string | null>(null);
 	const localStream = stream.current;
 	const mediaEnabled =
-		!!localStream && battle.phase !== "lobby" && battle.phase !== "aborted" && battle.phase !== "result";
+		!!localStream && !opponentIsBot && battle.phase !== "lobby" && battle.phase !== "aborted" && battle.phase !== "result";
 	const { remoteStream, status: peerStatus } = useWebRtcPeer({
 		enabled: mediaEnabled,
+		peerKey: `${battle.battleId}:${battle.replicaCount}`,
 		initiator: myRole === "p1",
 		localStream,
 		incomingSignal,
@@ -207,6 +222,52 @@ export function BattleStage({
 	// Caption en vivo: borrador (texto preservado/tipeado) + voz transcripta.
 	const liveText = [draft.trim(), transcript, interim].filter(Boolean).join(" ").trim();
 	const turnKey = `${battle.battleId}:${battle.replicaCount}:${battle.round}:${battle.activeRole ?? "none"}`;
+	const mod = MODALITIES[battle.modality];
+	const batchesPerTurn = promptBatchesPerTurn(mod, battle.beat?.bpm);
+	const promptInterval = promptIntervalMs(mod, battle.beat?.bpm);
+	const turnPromptWords = promptWordsForRound(battle, myRole, batchesPerTurn);
+	const promptRole =
+		battle.phase === "turn"
+			? battle.activeRole
+			: battle.phase === "countdown"
+				? roundStarter(1, battle.replicaCount)
+				: null;
+	const promptRound = battle.phase === "turn" ? battle.round : battle.phase === "countdown" ? 1 : 0;
+	const activePromptWords = useMemo(() => {
+		if (!promptRole) return battle.wordPlan ? [] : battle.words;
+		const batches = wordBatchesForRole(battle.wordPlan, promptRole);
+		if (batches.length === 0) return battle.words;
+		const startedAt =
+			battle.turnStartedAt ??
+			(battle.deadline ? battle.deadline - turnDurationMs(mod, battle.beat?.bpm) : now);
+		const segment =
+			battle.phase === "turn" && promptInterval
+				? Math.min(batchesPerTurn - 1, Math.max(0, Math.floor((now - startedAt) / promptInterval)))
+				: 0;
+		const index = Math.max(0, (promptRound - 1) * batchesPerTurn + segment);
+		return batches[index] ?? [];
+	}, [
+		battle.wordPlan,
+		battle.words,
+		battle.turnStartedAt,
+		battle.deadline,
+		battle.beat?.bpm,
+		battle.phase,
+		now,
+		promptRole,
+		promptRound,
+		promptInterval,
+		batchesPerTurn,
+		mod,
+	]);
+	const promptLabel =
+		battle.modality === "deconceptos"
+			? "CONCEPTOS A DESARROLLAR"
+			: battle.modality === "palabras"
+				? "PALABRAS QUE RIMAN"
+				: battle.modality === "hard" || battle.modality === "easy"
+					? "PALABRA ACTIVA"
+					: "PALABRAS OBLIGATORIAS";
 
 	useEffect(() => {
 		if (dgError === "connection" || dgError === "No se pudo conectar a Deepgram") {
@@ -215,8 +276,8 @@ export function BattleStage({
 	}, [dgError]);
 
 	const activateMic = useCallback(() => {
-		recStart((full) => onCaption(full), battle.words);
-	}, [recStart, onCaption, battle.words]);
+		recStart((full) => onCaption(full), turnPromptWords.length > 0 ? turnPromptWords : battle.words);
+	}, [recStart, onCaption, turnPromptWords, battle.words]);
 
 	useEffect(() => {
 		if (!isMyTurn) return;
@@ -259,7 +320,7 @@ export function BattleStage({
 	}, [isMyTurn, remaining, turnKey, submit]);
 
 	useEffect(() => {
-		if (battle.phase === "countdown" || battle.phase === "turn") {
+		if (battle.phase === "ready_check" || battle.phase === "countdown" || battle.phase === "turn") {
 			void ensureActive();
 		}
 	}, [battle.phase, battle.replicaCount, ensureActive]);
@@ -269,25 +330,37 @@ export function BattleStage({
 		onCaption(text);
 	};
 
-	const mod = MODALITIES[battle.modality];
+	const handleReady = useCallback(() => {
+		void ensureActive().finally(onReady);
+	}, [ensureActive, onReady]);
 
 	// Quién abre (para anunciarlo en la cuenta atrás).
 	const firstUp = battle.players[roundStarter(1, battle.replicaCount)];
-	useCountdownSound(battle.phase === "countdown", remaining);
+	// La cuenta atrás siempre arranca en 3, aunque el compás dé más margen
+	// (countdownMs alinea al compás y puede ser 5-6s). El blip sonoro sigue el
+	// mismo número visible para que no suene desfasado.
+	const countdownNum = remaining === null ? null : Math.min(remaining, 3);
+	useCountdownSound(battle.phase === "countdown", countdownNum);
+	// El reloj del turno se muestra acotado a la duración nominal de la
+	// modalidad: el turno real se alinea al compás (un "minuto" da 61s a 90 BPM),
+	// pero arriba mostramos 60. Igual llega a 0 cuando termina el turno, solo
+	// retiene el tope ~1s al inicio (como la cuenta atrás en 3).
+	const shownRemaining = remaining === null ? null : Math.min(remaining, mod.turnDurationSec);
 
 	// Palabras ya usadas por el MC activo (sus versos + lo que va diciendo).
+	const marksPromptUse = battle.modality !== "deconceptos";
 	const activeRoleNow = battle.phase === "turn" ? battle.activeRole : null;
 	const activeRunningText = activeRoleNow
 		? [...battle.verses[activeRoleNow], activeRoleNow === myRole ? liveText : opponentCaption].join(" ")
 		: "";
 	const usedWords = useMemo(() => {
-		if (battle.words.length === 0) return [];
+		if (!marksPromptUse || activePromptWords.length === 0) return [];
 		const text = normalizeWords(activeRunningText);
-		return battle.words.map((w) => {
+		return activePromptWords.map((w) => {
 			const key = normalizeWords(w).split(/\s+/).pop()!;
 			return text.includes(key);
 		});
-	}, [battle.words, activeRunningText]);
+	}, [activePromptWords, activeRunningText, marksPromptUse]);
 
 	const beatIsActive = Boolean(battle.beat?.audioUrl && (battle.phase === "countdown" || battle.phase === "turn"));
 	const beatPlayer = useBeatPlayer();
@@ -353,12 +426,12 @@ export function BattleStage({
 
 						<div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginTop: 20 }}>
 							<button
-								onClick={onReady}
+								onClick={handleReady}
 								disabled={me.ready}
 								className="btn-arena"
 								style={{ fontSize: 22, padding: "18px 48px" }}
 							>
-								<span>{me.ready ? "ESPERANDO AL RIVAL…" : "ESTOY LISTO ⚔"}</span>
+								<span>{me.ready ? "ESPERANDO AL RIVAL…" : "ESTOY LISTO"}</span>
 							</button>
 							{!me.ready && (
 								<p style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--bone-dim)" }}>
@@ -391,7 +464,7 @@ export function BattleStage({
 					verses={battle.verses[myRole]}
 					stream={localStream}
 					videoMuted
-					remaining={battle.phase === "turn" && battle.activeRole === myRole ? remaining : null}
+					remaining={battle.phase === "turn" && battle.activeRole === myRole ? shownRemaining : null}
 				/>
 
 				{/* Rival */}
@@ -404,8 +477,9 @@ export function BattleStage({
 					stream={remoteStream}
 					videoMuted={false}
 					mirror
-					mediaStatus={remoteStream ? undefined : peerStatus === "failed" ? "media desconectada" : "conectando"}
-					remaining={battle.phase === "turn" && battle.activeRole === oppRole ? remaining : null}
+					isBot={opponentIsBot}
+					mediaStatus={opponentIsBot || remoteStream ? undefined : peerStatus === "failed" ? "media desconectada" : "conectando"}
+					remaining={battle.phase === "turn" && battle.activeRole === oppRole ? shownRemaining : null}
 				/>
 
 				{/* Crowd reactions */}
@@ -453,17 +527,17 @@ export function BattleStage({
 					)}
 				</div>
 
-				{/* Prompt words: se tachan en vivo al usarlas */}
-				{battle.words.length > 0 && (
-					<div className="prompt-zone">
+				{/* Las palabras obligatorias se tachan en vivo; los conceptos no son checklist literal. */}
+				{activePromptWords.length > 0 && (
+					<div className={`prompt-zone${marksPromptUse ? "" : " concepts"}`}>
 						<div className="prompt-label">
-							{battle.modality === "deconceptos" ? "CONCEPTOS A DESARROLLAR" : "PALABRAS OBLIGATORIAS"}
+							{promptLabel}
 						</div>
 						<div className="prompt-word">
-							{battle.words.map((w, i) => (
+							{activePromptWords.map((w, i) => (
 								<span key={w}>
-									{i > 0 && <span className="pw-sep">·</span>}
-									<span className={`pw${usedWords[i] ? " used" : ""}`}>{w}</span>
+									{i > 0 && <span className="pw-sep"> · </span>}
+									<span className={`pw${marksPromptUse && usedWords[i] ? " used" : ""}`}>{w}</span>
 								</span>
 							))}
 						</div>
@@ -473,8 +547,8 @@ export function BattleStage({
 				{/* Countdown overlay: cada tick entra con un punch y anuncia quién abre */}
 				{battle.phase === "countdown" && (
 					<div className="battle-countdown">
-						<div key={remaining ?? "ya"} className="battle-countdown-num punch">
-							{remaining !== null && remaining > 0 ? remaining : "¡YA!"}
+						<div key={countdownNum ?? "ya"} className="battle-countdown-num punch">
+							{countdownNum !== null && countdownNum > 0 ? countdownNum : "¡YA!"}
 						</div>
 						<div className="battle-countdown-starter">
 							ABRE <span className="red">{(firstUp.name || "MC").toUpperCase()}</span>
@@ -626,7 +700,7 @@ function ResultScreen({
 								: (battle.players[judge.vote].name || judge.vote).toUpperCase();
 						return (
 							<span key={judge.judge} className={`judge-vote-label vote-${judge.vote}${stage !== "suspense" ? " shown" : ""}`}>
-								{stage === "suspense" ? "…" : label}
+								{stage === "suspense" ? "..." : label}
 							</span>
 						);
 					})}
@@ -692,7 +766,7 @@ function ResultScreen({
 								className="btn-arena"
 								style={{ fontSize: 20, padding: "16px 36px" }}
 							>
-								<span>{iWantRematch ? "ESPERANDO AL RIVAL…" : "REVANCHA ⚔"}</span>
+								<span>{iWantRematch ? "ESPERANDO AL RIVAL…" : "REVANCHA"}</span>
 							</button>
 						) : (
 							<button onClick={onLeave} className="btn-arena" style={{ fontSize: 20, padding: "16px 36px" }}>

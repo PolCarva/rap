@@ -9,16 +9,16 @@ import { useBattleEngine } from "./useBattleEngine";
 import { useMediaStream } from "./useMediaStream";
 import { useRapSession, type RapSession } from "./useRapSession";
 
-export function BattleApp() {
+export function BattleApp({ initialModality = "minuto-libre" }: { initialModality?: ModalityId }) {
 	const engine = useBattleEngine();
 	// El stream vive acá para persistir entre setup y la batalla.
 	const media = useMediaStream();
 	const rapSession = useRapSession();
-	const [modality, setModality] = useState<ModalityId>("minuto-libre");
+	const [modality, setModality] = useState<ModalityId>(initialModality);
 	const { state } = engine;
 	const resumedRef = useRef(false);
 	// Última búsqueda, para re-encolar con la misma config si el rival abandona.
-	const lastSearchRef = useRef<{ session: RapSession; modality: ModalityId; beatId: string | null } | null>(null);
+	const [lastSearch, setLastSearch] = useState<{ session: RapSession; modality: ModalityId; beatId: string | null; devBot: boolean } | null>(null);
 
 	// Tras un refresh, retomar la batalla activa si la había.
 	const { resume } = engine;
@@ -56,11 +56,11 @@ export function BattleApp() {
 				onRematch={engine.sendRematch}
 				onLeave={engine.leave}
 				onRequeue={
-					lastSearchRef.current
+					lastSearch
 						? () => {
-								const last = lastSearchRef.current!;
+								const last = lastSearch;
 								engine.leave();
-								void engine.search(last.session, last.modality, last.beatId);
+								void engine.search(last.session, last.modality, last.beatId, last.devBot);
 							}
 						: null
 				}
@@ -75,9 +75,10 @@ export function BattleApp() {
 	return (
 		<SetupScreen
 			error={state.error}
+			initialModality={modality}
 			media={media}
 			session={rapSession.session}
-			onSearch={(identity, m, beatId) => {
+			onSearch={(identity, m, beatId, devBot) => {
 				const nextSession: RapSession = identity.isGuest
 					? {
 							...rapSession.session,
@@ -107,8 +108,8 @@ export function BattleApp() {
 					}),
 				}).catch(() => {});
 				setModality(m);
-				lastSearchRef.current = { session: nextSession, modality: m, beatId };
-				engine.search(nextSession, m, beatId);
+				setLastSearch({ session: nextSession, modality: m, beatId, devBot });
+				engine.search(nextSession, m, beatId, devBot);
 			}}
 		/>
 	);

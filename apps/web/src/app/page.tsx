@@ -43,7 +43,9 @@ const STEPS = [
 const DIFF: Record<string, string> = {
 	"4x4": "MEDIO",
 	"minuto-libre": "ABIERTO",
-	palabras: "DIFÍCIL",
+	palabras: "RIMAS",
+	hard: "HARD",
+	easy: "EASY",
 	deconceptos: "CONCEPTUAL",
 };
 
@@ -166,7 +168,7 @@ export default function Home() {
 				<Reveal className="cine-section-head">
 					<p className="cine-kicker">ELEGÍ TU GUERRA</p>
 					<h2 className="cine-h2">
-						CUATRO <em>MODOS</em>
+						SEIS <em>MODOS</em>
 					</h2>
 				</Reveal>
 				<div className="cine-modes">
@@ -174,7 +176,7 @@ export default function Home() {
 						const m = MODALITIES[id];
 						return (
 							<Reveal key={id} delay={index * 90} className="cine-mode-wrap">
-								<TransitionLink href="/arena" className="cine-mode">
+								<TransitionLink href={`/arena?modo=${encodeURIComponent(id)}`} className="cine-mode">
 									<span className="cine-mode-index">{String(index + 1).padStart(2, "0")}</span>
 									<span className="cine-mode-name">{m.name}</span>
 									<span className="cine-mode-desc">{m.description}</span>
@@ -220,7 +222,7 @@ export default function Home() {
 					<div className="cine-top">
 						{top.map((mc, index) => (
 							<Reveal key={mc.id} delay={index * 100}>
-								<TransitionLink href={`/perfil/${encodeURIComponent(mc.id)}`} className="cine-top-row">
+								<TransitionLink href={`/perfil/${encodeURIComponent(mc.handle)}`} className="cine-top-row">
 									<span className="pos">{String(index + 1).padStart(2, "0")}</span>
 									<span className="handle">{mc.handle.toUpperCase()}</span>
 									<span className="elo">

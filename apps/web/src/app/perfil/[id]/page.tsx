@@ -2,11 +2,52 @@ import { getPublicProfile, getUserBattles, getUserModalityStats } from "@/lib/da
 import { getCurrentUser } from "@/lib/server-auth";
 import { AppNav } from "@/components/AppNav";
 import { ProfileEditor } from "@/components/ProfileEditor";
-import { MODALITIES, modalityIdSchema } from "@rap/shared";
+import { AvatarEditor } from "@/components/avatar/AvatarEditor";
+import { RapperAvatar } from "@/components/avatar/RapperAvatar";
+import { absoluteUrl, breadcrumbJsonLd, createPageMetadata, jsonLd, SITE_NAME } from "@/lib/seo";
+import { MODALITIES, avatarFromSeed, modalityIdSchema, parseAvatarConfig } from "@rap/shared";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProfilePage({ params }: { params: Promise<{ id: string }> }) {
+type ProfileParams = Promise<{ id: string }>;
+
+export async function generateMetadata({ params }: { params: ProfileParams }) {
+	const { id } = await params;
+	const decodedId = decodeURIComponent(id);
+
+	if (decodedId === "me") {
+		return createPageMetadata({
+			title: "Mi perfil",
+			description: "Perfil personal de Rap Arena.",
+			path: "/perfil/me",
+			image: "/og-profile.png",
+			noIndex: true,
+		});
+	}
+
+	const profile = await getPublicProfile(decodedId);
+	if (!profile) {
+		return createPageMetadata({
+			title: "Perfil no encontrado",
+			description: "Este perfil de Rap Arena no existe o ya no está disponible.",
+			path: `/perfil/${encodeURIComponent(decodedId)}`,
+			image: "/og-profile.png",
+			noIndex: true,
+		});
+	}
+
+	const winRate = profile.battles > 0 ? Math.round((profile.wins / profile.battles) * 100) : 0;
+	return createPageMetadata({
+		title: `${profile.handle} - perfil freestyle`,
+		description: `Stats de ${profile.handle} en Rap Arena: ${profile.elo} ELO, ${profile.battles} batallas, ${profile.wins} victorias y ${winRate}% win rate.`,
+		path: `/perfil/${encodeURIComponent(profile.handle)}`,
+		image: "/og-profile.png",
+		imageAlt: `Perfil de ${profile.handle} en Rap Arena`,
+		keywords: [profile.handle, "perfil MC", "stats freestyle", "ELO rap"],
+	});
+}
+
+export default async function ProfilePage({ params }: { params: ProfileParams }) {
 	const { id } = await params;
 	const decodedId = decodeURIComponent(id);
 	const currentUser = await getCurrentUser();
@@ -29,6 +70,8 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
 	]);
 	const isOwnProfile = currentUser?.id === profile.id;
 	const winRate = profile.battles > 0 ? Math.round((profile.wins / profile.battles) * 100) : 0;
+	const avatar = profile.avatarConfig ? parseAvatarConfig(profile.avatarConfig) : avatarFromSeed(profile.id);
+	const profilePath = `/perfil/${encodeURIComponent(profile.handle)}`;
 
 	// Preferred modality = most battles played
 	const preferredModality = modalityStats[0] ?? null;
@@ -46,6 +89,39 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
 
 	return (
 		<PageShell>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: jsonLd([
+						{
+							"@context": "https://schema.org",
+							"@type": "ProfilePage",
+							"@id": absoluteUrl(`${profilePath}#webpage`),
+							url: absoluteUrl(profilePath),
+							name: `${profile.handle} en Rap Arena`,
+							description: `Perfil freestyle de ${profile.handle}: ${profile.elo} ELO y ${profile.battles} batallas.`,
+							isPartOf: { "@id": absoluteUrl("/#website") },
+							mainEntity: {
+								"@type": "Person",
+								"@id": absoluteUrl(`${profilePath}#person`),
+								name: profile.handle,
+								identifier: profile.id,
+								additionalProperty: [
+									{ "@type": "PropertyValue", name: "ELO", value: profile.elo },
+									{ "@type": "PropertyValue", name: "Batallas", value: profile.battles },
+									{ "@type": "PropertyValue", name: "Victorias", value: profile.wins },
+									{ "@type": "PropertyValue", name: "Win rate", value: `${winRate}%` },
+								],
+							},
+						},
+						breadcrumbJsonLd([
+							{ name: SITE_NAME, path: "/" },
+							{ name: "Ranking", path: "/ranking" },
+							{ name: profile.handle, path: profilePath },
+						]),
+					]),
+				}}
+			/>
 			{/* Hero card */}
 			<section
 				style={{
@@ -56,9 +132,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
 			>
 				<div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
 					<div className="profile-identity">
-						<span className="rapper-avatar large" aria-hidden="true">
-							<span />
-						</span>
+						<RapperAvatar config={avatar} size={120} title={`Avatar de ${profile.handle}`} />
 						<div>
 							<p style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: profile.isGuest ? "rgba(163,230,53,0.7)" : "rgba(232,25,44,0.85)", marginBottom: 6 }}>
 								{profile.isGuest ? "Invitado" : "MC Registrado"}
@@ -95,6 +169,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
 			</section>
 
 			{isOwnProfile && <ProfileEditor handle={profile.handle} />}
+			{isOwnProfile && !profile.isGuest && <AvatarEditor initial={avatar} seed={profile.id} />}
 
 			{/* Streak + records */}
 			<section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
