@@ -255,7 +255,9 @@ body {
 
 .btn-arena:disabled {
 	background: var(--ink-3);
-	color: #56505a;
+	/* Legible aunque deshabilitado (antes #56505a quedaba casi ilegible). */
+	color: var(--bone-dim);
+	opacity: 0.85;
 	cursor: not-allowed;
 	box-shadow: none;
 }
@@ -916,10 +918,11 @@ body {
 	padding: 0 6px;
 }
 
-/* Fighter timer */
+/* Fighter timer: bajo la placa de nombre, en la esquina exterior del panel,
+   lejos del banner de turno centrado (que antes lo tapaba). */
 .fighter-timer {
 	position: absolute;
-	top: 70px;
+	top: 200px;
 	z-index: 8;
 	font-family: var(--font-display);
 	font-size: clamp(26px, 3vw, 44px);
@@ -931,11 +934,13 @@ body {
 }
 
 .fighter.me .fighter-timer {
-	right: 26px;
+	left: 26px;
+	right: auto;
 }
 
 .fighter.rival-side .fighter-timer {
-	left: 26px;
+	right: 26px;
+	left: auto;
 }
 
 .fighter.active .fighter-timer {
@@ -1071,11 +1076,14 @@ body {
 	pointer-events: auto;
 }
 
-/* Controles del turno propio: sobre MI panel (mitad izquierda en desktop). */
+/* Controles del turno propio: anclados a la esquina inferior izquierda de MI
+   panel, fuera del centro donde vive la zona de palabras (no se pisan). */
 .fighter-controls.mine {
-	left: 0;
-	right: 50%;
+	left: 26px;
+	right: auto;
 	bottom: 20px;
+	justify-content: flex-start;
+	padding: 0;
 	z-index: 15;
 }
 
@@ -1253,6 +1261,9 @@ body {
 	z-index: 22;
 	text-align: center;
 	min-width: 280px;
+	max-width: min(92vw, 540px);
+	/* Cartel informativo: nunca debe robar clics a los botones del turno. */
+	pointer-events: none;
 }
 
 .prompt-label {
@@ -1292,7 +1303,8 @@ body {
 .prompt-word .pw-sep {
 	color: var(--bone-dim);
 	opacity: 0.5;
-	margin: 0 0.35em;
+	/* El gap lo dan los espacios " · " (que además permiten cortar línea). */
+	margin: 0 0.1em;
 }
 
 /* Quién abre, debajo del número de la cuenta atrás. Late al tempo del beat
@@ -2754,8 +2766,11 @@ a.rk-row:hover {
 
 .judges-scene {
 	position: relative;
+	z-index: 0;
 	width: 100%;
 	height: clamp(180px, 26vh, 250px);
+	/* Escena decorativa: nunca captura clics ni se pinta sobre los textos. */
+	pointer-events: none;
 }
 
 /* Halo de escenario detrás del jurado: separa las figuras del fondo negro. */
@@ -2780,6 +2795,7 @@ a.rk-row:hover {
 	grid-template-columns: repeat(3, 1fr);
 	gap: 8px;
 	margin-top: -6px;
+	z-index: 1;
 }
 
 .judge-vote-label {
@@ -3589,6 +3605,10 @@ a.rk-row:hover {
 }
 
 .judgment-kicker {
+	position: relative;
+	/* Va antes del canvas en el DOM: lo elevo para que el halo del jurado no
+	   se pinte sobre este texto. */
+	z-index: 1;
 	font-family: var(--font-mono);
 	font-size: 12px;
 	letter-spacing: 0.3em;
@@ -3710,6 +3730,13 @@ a.rk-row:hover {
 .result-title.stage-suspense {
 	color: var(--bone-dim) !important;
 	text-shadow: none;
+	/* En suspenso el "..." va discreto y en mono: en la display (Anton) salían
+	   tres bloques pesados que parecían glifos rotos. */
+	font-family: var(--font-mono);
+	font-size: clamp(28px, 5vw, 48px);
+	letter-spacing: 0.35em;
+	opacity: 0.55;
+	transform: none;
 }
 
 .elo-impact {
@@ -3899,7 +3926,11 @@ a.rk-row:hover {
 }
 
 .backoffice-check input {
-	width: auto;
+	/* Tiñe el check nativo con el rojo del tema (antes azul del browser). */
+	accent-color: var(--red);
+	width: 16px;
+	height: 16px;
+	cursor: pointer;
 }
 
 .backoffice-file {
@@ -4085,12 +4116,16 @@ a.rk-row:hover {
 		right: 0;
 	}
 
+	/* Controles del turno: bien arriba del divisor (VS) para no pisarlo. */
 	.fighter-controls.mine {
-		bottom: calc(50% + 14px);
+		left: 0;
+		bottom: calc(50% + 48px);
+		justify-content: center;
+		padding: 0 18px;
 	}
 
 	.verse-draft-zone {
-		bottom: calc(50% + 64px);
+		bottom: calc(50% + 96px);
 	}
 
 	.vs-badge {
@@ -4102,6 +4137,12 @@ a.rk-row:hover {
 		top: 12px;
 		width: 100%;
 		padding: 0 12px;
+	}
+
+	/* El nombre del beat ocupa demasiado en el HUD angosto y pisaba ABANDONAR
+	   y la placa de nombre; ya aparece en el splash VS. */
+	.turn-beat {
+		display: none;
 	}
 
 	.conn-banner {
@@ -4119,6 +4160,13 @@ a.rk-row:hover {
 	.prompt-word {
 		font-size: clamp(16px, 5vw, 26px);
 		padding: 6px 14px;
+	}
+
+	/* En pantallas angostas el cartel de palabras envuelve en varias líneas en
+	   vez de desbordar y cortarse a los lados. */
+	.prompt-zone .prompt-word {
+		white-space: normal;
+		overflow-wrap: anywhere;
 	}
 }
 

@@ -34,8 +34,14 @@ export default async function BattlesPage() {
 							const modName = modality.success ? MODALITIES[modality.data].name : battle.modality;
 							const finished = battle.status === "finished" && battle.winner;
 							const aborted = battle.status === "aborted";
+							// Solo una batalla finalizada tiene ganador/score: mientras está
+							// EN CURSO no mostramos veredicto ni puntaje (evita "EN CURSO" con GANÓ).
 							const winnerName =
-								battle.winner === "p1" ? battle.player1Name : battle.winner === "p2" ? battle.player2Name : null;
+								!finished || battle.winner === "draw"
+									? null
+									: battle.winner === "p1"
+										? battle.player1Name
+										: battle.player2Name;
 
 							return (
 								<article key={battle.id} className={`hx-card${aborted ? " aborted" : ""}`}>
@@ -47,15 +53,15 @@ export default async function BattlesPage() {
 										</span>
 									</div>
 									<div className="hx-card-main">
-										<span className={`hx-name${battle.winner === "p1" ? " winner" : ""}`}>
+										<span className={`hx-name${finished && battle.winner === "p1" ? " winner" : ""}`}>
 											{battle.player1Name.toUpperCase()}
 										</span>
 										<span className="hx-score">
-											{battle.scoreP1 ?? "–"}
+											{finished ? (battle.scoreP1 ?? "–") : "–"}
 											<i>/</i>
-											{battle.scoreP2 ?? "–"}
+											{finished ? (battle.scoreP2 ?? "–") : "–"}
 										</span>
-										<span className={`hx-name right${battle.winner === "p2" ? " winner" : ""}`}>
+										<span className={`hx-name right${finished && battle.winner === "p2" ? " winner" : ""}`}>
 											{battle.player2Name.toUpperCase()}
 										</span>
 									</div>

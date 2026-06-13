@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { recordBattleAbort, recordBattleResult, recordBattleStart, type PersistedIdentity } from "@rap/db";
+import { finalizeBattleStatus, recordBattleAbort, recordBattleResult, recordBattleStart, type PersistedIdentity } from "@rap/db";
 import {
 	countdownMs,
 	drawWordsForModality,
@@ -332,6 +332,10 @@ export class BattleRoom extends DurableObject<Env> {
 
 		// Batalla terminada: el alarm pendiente es el de limpieza del storage.
 		if (this.isTerminal(state)) {
+			// Antes de borrar el storage, garantizar que la DB refleje el cierre:
+			// si la persistencia del resultado falló, esta es la última red para
+			// que la batalla no quede "en curso" eterna.
+			await this.ensurePersistedTerminal(state);
 			await this.ctx.storage.deleteAll();
 			return;
 		}
@@ -647,28 +651,55 @@ export class BattleRoom extends DurableObject<Env> {
 
 	private async persistResult(state: BattleState): Promise<EloImpact | null> {
 		if (!this.env.DB || !state.verdict) return null;
+		const input = {
+			id: state.battleId,
+			modality: state.modality,
+			words: state.words,
+			beat: state.beat,
+			players: {
+				p1: this.identityOf(state, "p1"),
+				p2: this.identityOf(state, "p2"),
+			},
+			winner: state.verdict.winner,
+			scoreP1: state.verdict.scores.p1,
+			scoreP2: state.verdict.scores.p2,
+			rationale: state.verdict.rationale,
+			model: state.verdict.model,
+			detail: { players: state.verdict.detail ?? null, judges: state.verdict.judges },
+			verses: state.verses,
+			endedAt: Date.now(),
+		};
+		// `recordBattleResult` corre en un `db.batch` atómico: si falla, no
+		// escribió nada, así que reintentar no duplica stats ni ELO.
+		for (let attempt = 0; attempt < 3; attempt++) {
+			try {
+				return await recordBattleResult(this.env.DB, input);
+			} catch (error) {
+				console.warn(`persistResult failed (intento ${attempt + 1}/3)`, error);
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Antes de que la sala borre su storage, asegura que la fila de la batalla
+	 * quede cerrada en la DB. Idempotente (`WHERE status='active'` en ambas
+	 * queries): si el resultado ya se persistió, no hace nada ni recuenta stats.
+	 */
+	private async ensurePersistedTerminal(state: BattleState): Promise<void> {
+		if (!this.env.DB) return;
 		try {
-			return await recordBattleResult(this.env.DB, {
-				id: state.battleId,
-				modality: state.modality,
-				words: state.words,
-				beat: state.beat,
-				players: {
-					p1: this.identityOf(state, "p1"),
-					p2: this.identityOf(state, "p2"),
-				},
-				winner: state.verdict.winner,
-				scoreP1: state.verdict.scores.p1,
-				scoreP2: state.verdict.scores.p2,
-				rationale: state.verdict.rationale,
-				model: state.verdict.model,
-				detail: { players: state.verdict.detail ?? null, judges: state.verdict.judges },
-				verses: state.verses,
-				endedAt: Date.now(),
-			});
+			if (state.phase === "aborted") {
+				await recordBattleAbort(this.env.DB, state.battleId);
+			} else if (state.phase === "result" && state.verdict && state.verdict.winner !== "draw") {
+				await finalizeBattleStatus(this.env.DB, state.battleId, {
+					winner: state.verdict.winner,
+					scoreP1: state.verdict.scores.p1,
+					scoreP2: state.verdict.scores.p2,
+				});
+			}
 		} catch (error) {
-			console.warn("persistResult failed", error);
-			return null;
+			console.warn("ensurePersistedTerminal failed", error);
 		}
 	}
 }

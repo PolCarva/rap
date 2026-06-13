@@ -49,6 +49,9 @@ function useBattleClock(deadline: number | null): { remaining: number | null; no
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		if (deadline === null) return;
+		// Refrescar de inmediato: si `now` quedó congelado de una fase sin
+		// deadline, el primer render mostraría un número inflado por ~200ms.
+		setNow(Date.now());
 		const id = setInterval(() => setNow(Date.now()), 200);
 		return () => clearInterval(id);
 	}, [deadline]);
@@ -333,7 +336,16 @@ export function BattleStage({
 
 	// Quién abre (para anunciarlo en la cuenta atrás).
 	const firstUp = battle.players[roundStarter(1, battle.replicaCount)];
-	useCountdownSound(battle.phase === "countdown", remaining);
+	// La cuenta atrás siempre arranca en 3, aunque el compás dé más margen
+	// (countdownMs alinea al compás y puede ser 5-6s). El blip sonoro sigue el
+	// mismo número visible para que no suene desfasado.
+	const countdownNum = remaining === null ? null : Math.min(remaining, 3);
+	useCountdownSound(battle.phase === "countdown", countdownNum);
+	// El reloj del turno se muestra acotado a la duración nominal de la
+	// modalidad: el turno real se alinea al compás (un "minuto" da 61s a 90 BPM),
+	// pero arriba mostramos 60. Igual llega a 0 cuando termina el turno, solo
+	// retiene el tope ~1s al inicio (como la cuenta atrás en 3).
+	const shownRemaining = remaining === null ? null : Math.min(remaining, mod.turnDurationSec);
 
 	// Palabras ya usadas por el MC activo (sus versos + lo que va diciendo).
 	const activeRoleNow = battle.phase === "turn" ? battle.activeRole : null;
@@ -418,7 +430,7 @@ export function BattleStage({
 								className="btn-arena"
 								style={{ fontSize: 22, padding: "18px 48px" }}
 							>
-								<span>{me.ready ? "ESPERANDO AL RIVAL…" : "ESTOY LISTO ⚔"}</span>
+								<span>{me.ready ? "ESPERANDO AL RIVAL…" : "ESTOY LISTO"}</span>
 							</button>
 							{!me.ready && (
 								<p style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--bone-dim)" }}>
@@ -451,7 +463,7 @@ export function BattleStage({
 					verses={battle.verses[myRole]}
 					stream={localStream}
 					videoMuted
-					remaining={battle.phase === "turn" && battle.activeRole === myRole ? remaining : null}
+					remaining={battle.phase === "turn" && battle.activeRole === myRole ? shownRemaining : null}
 				/>
 
 				{/* Rival */}
@@ -466,7 +478,7 @@ export function BattleStage({
 					mirror
 					isBot={opponentIsBot}
 					mediaStatus={opponentIsBot || remoteStream ? undefined : peerStatus === "failed" ? "media desconectada" : "conectando"}
-					remaining={battle.phase === "turn" && battle.activeRole === oppRole ? remaining : null}
+					remaining={battle.phase === "turn" && battle.activeRole === oppRole ? shownRemaining : null}
 				/>
 
 				{/* Crowd reactions */}
@@ -523,7 +535,7 @@ export function BattleStage({
 						<div className="prompt-word">
 							{activePromptWords.map((w, i) => (
 								<span key={w}>
-									{i > 0 && <span className="pw-sep">·</span>}
+									{i > 0 && <span className="pw-sep"> · </span>}
 									<span className={`pw${usedWords[i] ? " used" : ""}`}>{w}</span>
 								</span>
 							))}
@@ -534,8 +546,8 @@ export function BattleStage({
 				{/* Countdown overlay: cada tick entra con un punch y anuncia quién abre */}
 				{battle.phase === "countdown" && (
 					<div className="battle-countdown">
-						<div key={remaining ?? "ya"} className="battle-countdown-num punch">
-							{remaining !== null && remaining > 0 ? remaining : "¡YA!"}
+						<div key={countdownNum ?? "ya"} className="battle-countdown-num punch">
+							{countdownNum !== null && countdownNum > 0 ? countdownNum : "¡YA!"}
 						</div>
 						<div className="battle-countdown-starter">
 							ABRE <span className="red">{(firstUp.name || "MC").toUpperCase()}</span>
@@ -687,7 +699,7 @@ function ResultScreen({
 								: (battle.players[judge.vote].name || judge.vote).toUpperCase();
 						return (
 							<span key={judge.judge} className={`judge-vote-label vote-${judge.vote}${stage !== "suspense" ? " shown" : ""}`}>
-								{stage === "suspense" ? "…" : label}
+								{stage === "suspense" ? "..." : label}
 							</span>
 						);
 					})}
@@ -753,7 +765,7 @@ function ResultScreen({
 								className="btn-arena"
 								style={{ fontSize: 20, padding: "16px 36px" }}
 							>
-								<span>{iWantRematch ? "ESPERANDO AL RIVAL…" : "REVANCHA ⚔"}</span>
+								<span>{iWantRematch ? "ESPERANDO AL RIVAL…" : "REVANCHA"}</span>
 							</button>
 						) : (
 							<button onClick={onLeave} className="btn-arena" style={{ fontSize: 20, padding: "16px 36px" }}>

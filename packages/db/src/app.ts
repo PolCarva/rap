@@ -451,7 +451,8 @@ export async function recordBattleStart(db: D1Database, input: BattlePersistInpu
 				player1_name = excluded.player1_name,
 				player2_name = excluded.player2_name,
 				started_at = COALESCE(battles.started_at, excluded.started_at)
-			 WHERE battles.status NOT IN ('finished', 'aborted')`,
+			 WHERE battles.status NOT IN ('finished', 'aborted')
+			   AND battles.winner IS NULL`,
 		)
 		.bind(
 			input.id,
@@ -477,6 +478,32 @@ export async function recordBattleAbort(db: D1Database, battleId: string): Promi
 	await db
 		.prepare(`UPDATE battles SET status = 'aborted', ended_at = ? WHERE id = ? AND status = 'active'`)
 		.bind(Date.now(), battleId)
+		.run();
+}
+
+/**
+ * Red de seguridad idempotente: cierra la fila de la batalla si quedó 'active'
+ * (p. ej. si `recordBattleResult` falló y solo se logueó el error). NO toca
+ * stats ni ELO —eso ya lo hizo recordBattleResult—; solo garantiza que ninguna
+ * batalla con veredicto quede "en curso" para siempre. El `WHERE status='active'`
+ * la hace segura de llamar varias veces.
+ */
+export async function finalizeBattleStatus(
+	db: D1Database,
+	battleId: string,
+	result: { winner: "p1" | "p2" | "draw"; scoreP1: number; scoreP2: number; endedAt?: number },
+): Promise<void> {
+	await db
+		.prepare(
+			`UPDATE battles
+			 SET status = 'finished',
+			     winner = COALESCE(winner, ?),
+			     score_p1 = COALESCE(score_p1, ?),
+			     score_p2 = COALESCE(score_p2, ?),
+			     ended_at = COALESCE(ended_at, ?)
+			 WHERE id = ? AND status = 'active'`,
+		)
+		.bind(result.winner, result.scoreP1, result.scoreP2, result.endedAt ?? Date.now(), battleId)
 		.run();
 }
 

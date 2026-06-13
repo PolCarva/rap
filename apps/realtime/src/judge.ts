@@ -37,6 +37,11 @@ const llmOutputSchema = z.object({
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const REPLICA_DIFF = 3;
+
+/** Un MC participó si soltó al menos un verso no vacío. */
+function participated(state: BattleState, role: Role): boolean {
+	return state.verses[role].some((verse) => verse.trim().length > 0);
+}
 const UNANIMOUS_DIFF = 14;
 const MAX_REPLICAS = 2;
 
@@ -61,13 +66,6 @@ function totalFromCriteria(
 			criteria.punchlines * 0.25 +
 			criteria.respuesta * 0.13;
 	return clamp(Math.round(weighted * 10), 0, 100);
-}
-
-function normalizeTotal(rawTotal: number | null | undefined, criteriaTotal: number): number {
-	if (rawTotal === null || rawTotal === undefined) return criteriaTotal;
-	const scaled = rawTotal <= 10 ? rawTotal * 10 : rawTotal;
-	const total = clamp(Math.round(scaled), 0, 100);
-	return Math.abs(total - criteriaTotal) > 30 ? criteriaTotal : total;
 }
 
 function allRequiredWords(state: BattleState): string[] {
@@ -130,7 +128,10 @@ export async function judgeBattle(state: BattleState, env: Env): Promise<Verdict
 			const parsed = llmOutputSchema.safeParse(JSON.parse(extractJson(content)));
 			if (!parsed.success) continue;
 
-			return toVerdict(parsed.data, model, hasWords, state.replicaCount);
+			return toVerdict(parsed.data, model, hasWords, state.replicaCount, {
+				p1: participated(state, "p1"),
+				p2: participated(state, "p2"),
+			});
 		} catch {
 			/* reintentar */
 		}
@@ -143,24 +144,28 @@ function toVerdict(
 	model: string,
 	hasWords: boolean,
 	replicaCount: number,
+	didParticipate: { p1: boolean; p2: boolean },
 ): Verdict {
-	const norm = (p: z.infer<typeof llmPlayerSchema>) => {
+	// El total se deriva de los criterios (no se confía en el `total` libre del
+	// LLM): así las barras y el total siempre coinciden y nadie gana con un
+	// total inflado que contradice su desglose. Un MC que no rapeó va a 0 en
+	// todo —no puede ganarle a quien sí participó—.
+	const norm = (p: z.infer<typeof llmPlayerSchema>, did: boolean) => {
 		const criteria = {
-			flow: clamp(p.flow ?? 0, 0, 10),
-			rimas: clamp(p.rimas ?? 0, 0, 10),
-			punchlines: clamp(p.punchlines ?? 0, 0, 10),
-			respuesta: clamp(p.respuesta ?? 0, 0, 10),
-			palabras: hasWords ? clamp(p.palabras ?? 0, 0, 10) : null,
+			flow: did ? clamp(p.flow ?? 0, 0, 10) : 0,
+			rimas: did ? clamp(p.rimas ?? 0, 0, 10) : 0,
+			punchlines: did ? clamp(p.punchlines ?? 0, 0, 10) : 0,
+			respuesta: did ? clamp(p.respuesta ?? 0, 0, 10) : 0,
+			palabras: hasWords ? (did ? clamp(p.palabras ?? 0, 0, 10) : 0) : null,
 		};
-		const criteriaTotal = totalFromCriteria(criteria, hasWords);
 		return {
 			criteria,
-			total: normalizeTotal(p.total, criteriaTotal),
-			comment: p.comment ?? "",
+			total: did ? totalFromCriteria(criteria, hasWords) : 0,
+			comment: did ? (p.comment ?? "") : (p.comment ?? "No rapeó en esta batalla."),
 		};
 	};
-	const p1 = norm(out.p1);
-	const p2 = norm(out.p2);
+	const p1 = norm(out.p1, didParticipate.p1);
+	const p2 = norm(out.p2, didParticipate.p2);
 
 	const outcome = votesFromDetail(p1, p2, replicaCount);
 
