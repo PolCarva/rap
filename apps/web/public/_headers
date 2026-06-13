@@ -2,3 +2,42 @@
 # https://opennext.js.org/cloudflare/caching#static-assets-caching
 /_next/static/*
   Cache-Control: public,max-age=31536000,immutable
+
+/favicon.ico
+  Cache-Control: public,max-age=86400
+
+/favicon.svg
+  Cache-Control: public,max-age=86400
+
+/favicon-*.png
+  Cache-Control: public,max-age=86400
+
+/icon*.png
+  Cache-Control: public,max-age=86400
+
+/maskable-icon.png
+  Cache-Control: public,max-age=86400
+
+/apple-touch-icon.png
+  Cache-Control: public,max-age=86400
+
+/mstile-150x150.png
+  Cache-Control: public,max-age=86400
+
+/og-*.png
+  Cache-Control: public,max-age=86400
+
+/twitter-image.png
+  Cache-Control: public,max-age=86400
+
+/site.webmanifest
+  Cache-Control: public,max-age=3600
+
+/browserconfig.xml
+  Cache-Control: public,max-age=3600
+
+/robots.txt
+  Cache-Control: public,max-age=3600
+
+/sitemap.xml
+  Cache-Control: public,max-age=3600

@@ -13,9 +13,10 @@ export function AuthBar() {
 	const [mode, setMode] = useState<Mode | null>(null);
 
 	if (!session.session.isGuest && session.session.userId) {
+		const profileSlug = session.session.name ? session.session.name.toLowerCase() : session.session.userId;
 		return (
 			<div className="auth-bar">
-				<Link href={`/perfil/${encodeURIComponent(session.session.userId)}`} className="auth-profile">
+				<Link href={`/perfil/${encodeURIComponent(profileSlug)}`} className="auth-profile">
 					<RapperAvatar
 						config={session.session.avatarConfig ?? avatarFromSeed(session.session.userId)}
 						size={32}

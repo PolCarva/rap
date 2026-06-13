@@ -222,7 +222,7 @@ export default function Home() {
 					<div className="cine-top">
 						{top.map((mc, index) => (
 							<Reveal key={mc.id} delay={index * 100}>
-								<TransitionLink href={`/perfil/${encodeURIComponent(mc.id)}`} className="cine-top-row">
+								<TransitionLink href={`/perfil/${encodeURIComponent(mc.handle)}`} className="cine-top-row">
 									<span className="pos">{String(index + 1).padStart(2, "0")}</span>
 									<span className="handle">{mc.handle.toUpperCase()}</span>
 									<span className="elo">

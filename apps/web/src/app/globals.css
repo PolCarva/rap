@@ -22,9 +22,9 @@
 	--red-hot: #ff2d40;
 	--red-deep: #7e0d19;
 	--line: #26262e;
-	--font-display: "Anton", "Arial Narrow", sans-serif;
-	--font-body: "Oswald", sans-serif;
-	--font-mono: "IBM Plex Mono", monospace;
+	--font-display: var(--font-anton, "Anton"), "Arial Narrow", sans-serif;
+	--font-body: var(--font-oswald, "Oswald"), sans-serif;
+	--font-mono: var(--font-ibm-plex-mono, "IBM Plex Mono"), monospace;
 	--background: #08080b;
 	--foreground: #f2ecdd;
 }

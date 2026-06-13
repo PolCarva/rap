@@ -1,8 +1,17 @@
 import { getRanking } from "@/lib/data";
 import { AppNav } from "@/components/AppNav";
+import { absoluteUrl, breadcrumbJsonLd, createPageMetadata, jsonLd, SITE_NAME } from "@/lib/seo";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
+export const metadata = createPageMetadata({
+	title: "Ranking ELO de freestyle",
+	description:
+		"Consultá el ranking global de Rap Arena con ELO, victorias, derrotas, win rate y rachas de los MCs de freestyle online.",
+	path: "/ranking",
+	image: "/og-ranking.png",
+	keywords: ["ranking freestyle", "ranking ELO rap", "tabla de MCs", "mejores MCs online"],
+});
 
 const PODIUM_TAGS = ["CAMPEÓN", "RETADOR", "AMENAZA"] as const;
 
@@ -13,6 +22,35 @@ export default async function RankingPage() {
 
 	return (
 		<main className="app-page-shell">
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: jsonLd([
+						{
+							"@context": "https://schema.org",
+							"@type": "CollectionPage",
+							"@id": absoluteUrl("/ranking#webpage"),
+							url: absoluteUrl("/ranking"),
+							name: "Ranking ELO de freestyle",
+							description: "Tabla global de MCs de Rap Arena con ELO, victorias y rachas.",
+							isPartOf: { "@id": absoluteUrl("/#website") },
+							mainEntity: {
+								"@type": "ItemList",
+								itemListElement: ranking.slice(0, 20).map((mc, index) => ({
+									"@type": "ListItem",
+									position: index + 1,
+									name: mc.handle,
+									url: absoluteUrl(`/perfil/${encodeURIComponent(mc.handle)}`),
+								})),
+							},
+						},
+						breadcrumbJsonLd([
+							{ name: SITE_NAME, path: "/" },
+							{ name: "Ranking", path: "/ranking" },
+						]),
+					]),
+				}}
+			/>
 			<AppNav status="RANKING GLOBAL" />
 			<div className="rk-shell">
 				<header className="rk-head">
@@ -38,7 +76,7 @@ export default async function RankingPage() {
 								return (
 									<Link
 										key={mc.id}
-										href={`/perfil/${encodeURIComponent(mc.id)}`}
+										href={`/perfil/${encodeURIComponent(mc.handle)}`}
 										className={`rk-podium-card pos-${index + 1}`}
 									>
 										<span className="rk-podium-rank">{String(index + 1).padStart(2, "0")}</span>
@@ -71,7 +109,7 @@ export default async function RankingPage() {
 								{rest.map((mc, index) => {
 									const wr = mc.battles > 0 ? Math.round((mc.wins / mc.battles) * 100) : 0;
 									return (
-										<Link key={mc.id} href={`/perfil/${encodeURIComponent(mc.id)}`} className="rk-row">
+										<Link key={mc.id} href={`/perfil/${encodeURIComponent(mc.handle)}`} className="rk-row">
 											<span className="rk-pos">{String(index + 4).padStart(2, "0")}</span>
 											<span className="rk-handle">{mc.handle.toUpperCase()}</span>
 											<span className="num rk-elo">{mc.elo}</span>

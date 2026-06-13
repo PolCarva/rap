@@ -1,15 +1,53 @@
 import { getRecentBattles, parseBattleWords } from "@/lib/data";
 import { AppNav } from "@/components/AppNav";
+import { absoluteUrl, breadcrumbJsonLd, createPageMetadata, jsonLd, SITE_NAME } from "@/lib/seo";
 import { MODALITIES, modalityIdSchema } from "@rap/shared";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
+export const metadata = createPageMetadata({
+	title: "Historial de batallas de rap",
+	description:
+		"Revisá las últimas batallas de freestyle en Rap Arena: resultados, scores, modos, beats y veredictos del juez IA.",
+	path: "/batallas",
+	image: "/og-batallas.png",
+	keywords: ["historial freestyle", "resultados batallas de rap", "veredictos freestyle", "batallas recientes"],
+});
 
 export default async function BattlesPage() {
 	const battles = await getRecentBattles(50);
 
 	return (
 		<main className="app-page-shell">
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: jsonLd([
+						{
+							"@context": "https://schema.org",
+							"@type": "CollectionPage",
+							"@id": absoluteUrl("/batallas#webpage"),
+							url: absoluteUrl("/batallas"),
+							name: "Historial de batallas de rap",
+							description: "Resultados recientes de batallas de freestyle online en Rap Arena.",
+							isPartOf: { "@id": absoluteUrl("/#website") },
+							mainEntity: {
+								"@type": "ItemList",
+								itemListElement: battles.slice(0, 20).map((battle, index) => ({
+									"@type": "ListItem",
+									position: index + 1,
+									name: `${battle.player1Name} vs ${battle.player2Name}`,
+									url: absoluteUrl("/batallas"),
+								})),
+							},
+						},
+						breadcrumbJsonLd([
+							{ name: SITE_NAME, path: "/" },
+							{ name: "Batallas", path: "/batallas" },
+						]),
+					]),
+				}}
+			/>
 			<AppNav status="HISTORIAL GLOBAL" />
 			<div className="hx-shell">
 				<header className="hx-head">

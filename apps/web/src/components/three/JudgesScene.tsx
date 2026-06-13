@@ -238,7 +238,6 @@ export function JudgesScene({ votes, stage }: Props) {
 			mount.removeChild(renderer.domElement);
 		};
 		// votes es estable por batalla (se monta una vez por veredicto).
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [votes]);
 
 	return <div ref={mountRef} className="judges-scene" aria-hidden="true" />;
