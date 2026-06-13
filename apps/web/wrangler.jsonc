@@ -44,6 +44,10 @@
 		{
 			"binding": "BEAT_UPLOADS",
 			"bucket_name": "rap-beat-uploads"
+		},
+		{
+			"bucket_name": "rap-beat-uploads",
+			"binding": "rap_beat_uploads"
 		}
 	],
 	"observability": {
