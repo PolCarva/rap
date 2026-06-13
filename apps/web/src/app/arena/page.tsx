@@ -8,7 +8,7 @@ type ArenaSearchParams = Promise<Record<string, string | string[] | undefined>>;
 export const metadata = createPageMetadata({
 	title: "Arena de freestyle online",
 	description:
-		"Entrá a la arena de Rap Arena, elegí modo y beat, buscá rival y batallá freestyle 1 vs 1 en vivo con juez IA.",
+		"Entrá a la arena de Rapear Online, elegí modo y beat, buscá rival y batallá freestyle 1 vs 1 en vivo con juez IA.",
 	path: "/arena",
 	image: "/og-arena.png",
 	keywords: ["arena freestyle", "batalla 1 vs 1", "freestyle con beat", "rap online en vivo"],

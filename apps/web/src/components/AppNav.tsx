@@ -19,7 +19,7 @@ export function AppNav({ status }: { status?: string }) {
 	return (
 		<header className="app-nav">
 			<TransitionLink href="/" className="arena-wordmark app-nav-brand">
-				<span className="tick">▮▮</span>RAP ARENA
+				<span className="tick">▮▮</span>RAPEAR ONLINE
 			</TransitionLink>
 			<div className="app-nav-status">
 				<span className="arena-live-dot" />

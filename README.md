@@ -1,4 +1,4 @@
-# Rap Arena
+# Rapear Online
 
 Web de batallas 1v1 de freestyle: matchmaking en tiempo real, sala autoritativa con Durable Objects, transcripción, análisis local de rimas, juez IA, perfiles/ranking e historial persistido en D1.
 
@@ -100,17 +100,40 @@ npx wrangler secret put BACKOFFICE_PASSWORD
 
 # Storage para beats subidos desde /backoffice
 npx wrangler r2 bucket create rap-beat-uploads
-
-# Migraciones remotas
-cd ../realtime && npx wrangler d1 migrations apply rap-db --remote
-
-# Deploy
-npm run deploy:realtime
-NEXT_PUBLIC_REALTIME_URL=wss://rap-realtime.<tu-cuenta>.workers.dev npm run deploy:web
 ```
 
-`NEXT_PUBLIC_REALTIME_URL` se inyecta en build-time del cliente: apuntala al
-worker realtime desplegado (esquema `wss://`).
+### Subir cambios
+
+Desde la raíz, **un solo comando** hace todo:
+
+```bash
+npm run deploy
+```
+
+Esto corre, en orden:
+
+1. `deploy:db` — aplica las migraciones D1 pendientes en remoto
+   (`wrangler d1 migrations apply rap-db --remote`). Idempotente: si no hay
+   nada pendiente, no hace nada.
+2. `deploy:web` — build + deploy del worker web.
+3. `deploy:realtime` — deploy del worker realtime.
+
+Las migraciones corren **antes** del código a propósito: así el schema siempre
+está listo cuando el nuevo código lo usa. (Olvidar este paso fue lo que rompió
+el login en prod: el código consultaba `avatar_config` antes de que la columna
+existiera en la base → `D1_ERROR: no such column`.)
+
+Si necesitás una pieza suelta: `npm run deploy:db`, `npm run deploy:web` o
+`npm run deploy:realtime`.
+
+> ⚠️ El orden migrar-primero es correcto para cambios **aditivos** (agregar
+> tablas/columnas). Para una migración **destructiva** (borrar/renombrar algo
+> que el código viejo todavía usa), aplicala a mano *después* del deploy de
+> código.
+
+`NEXT_PUBLIC_REALTIME_URL` se inyecta en build-time del cliente (ya viene fijado
+en el script `deploy` de `apps/web` apuntando al worker realtime, esquema
+`wss://`).
 
 ## Notas de V1
 

@@ -5,7 +5,7 @@ import type { Beat } from "@rap/shared";
 import { AppNav } from "@/components/AppNav";
 import { detectBpmFromUrl, isSoundCloudUrl } from "@/lib/bpm";
 
-const KEY = "rap-arena-backoffice-key";
+const KEY = "rapear-online-backoffice-key";
 
 interface BeatForm {
 	id?: string;

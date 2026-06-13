@@ -105,16 +105,16 @@ export default function Home() {
 					<p className="cine-over glitch" data-text="UNDERGROUND FREESTYLE LEAGUE">
 						UNDERGROUND FREESTYLE LEAGUE
 					</p>
-					<h1 className="cine-title" aria-label="RAP ARENA">
+					<h1 className="cine-title" aria-label="RAPEAR ONLINE">
 						<span className="line">
-							{[..."RAP"].map((c, i) => (
+							{[..."RAPEAR"].map((c, i) => (
 								<span key={i} className="ch" style={{ animationDelay: `${0.35 + i * 0.07}s` }}>
 									{c}
 								</span>
 							))}
 						</span>
 						<span className="line filled">
-							{[..."ARENA"].map((c, i) => (
+							{[..."ONLINE"].map((c, i) => (
 								<span key={i} className="ch" style={{ animationDelay: `${0.6 + i * 0.07}s` }}>
 									{c}
 								</span>

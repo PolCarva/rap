@@ -5,7 +5,7 @@
  * batalla se juega como invitado y no mueve ELO.
  */
 
-export const DEV_JWT_SECRET = "rap-arena-dev-secret-change-in-prod";
+export const DEV_JWT_SECRET = "rapear-online-dev-secret-change-in-prod";
 
 async function hmacKey(secret: string): Promise<CryptoKey> {
 	const enc = new TextEncoder();

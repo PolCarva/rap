@@ -13,7 +13,7 @@ export interface RapSession {
 	avatarConfig: AvatarConfig | null;
 }
 
-const KEY = "rap-arena-session-v1";
+const KEY = "rapear-online-session-v1";
 
 function freshSession(): RapSession {
 	return {

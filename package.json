@@ -17,9 +17,10 @@
     "smoke:rematch": "node scripts/smoke-rematch.mjs",
     "smoke:suite": "node scripts/smoke-suite.mjs",
     "test:rhyme": "node scripts/test-rhyme.mjs",
+    "deploy:db": "npm run db:migrate --workspace @rap/db",
     "deploy:web": "npm run deploy --workspace @rap/web",
     "deploy:realtime": "npm run deploy --workspace @rap/realtime",
-    "deploy": "npm run deploy:web && npm run deploy:realtime",
+    "deploy": "npm run deploy:db && npm run deploy:web && npm run deploy:realtime",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present"
   },

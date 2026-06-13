@@ -38,7 +38,7 @@ export async function POST(req: Request): Promise<Response> {
 			headers: {
 				Authorization: `Bearer ${apiKey}`,
 				"Content-Type": "application/json",
-				"X-Title": "Rap Arena",
+				"X-Title": "Rapear Online",
 			},
 			body: JSON.stringify({
 				model,

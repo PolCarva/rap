@@ -1,6 +1,8 @@
 import { getModalityStats, getProfile, listBattles, listRanking, listUserBattles } from "@rap/db";
+import { battleStateSchema } from "@rap/shared";
 import type { Env } from "./env";
 import { BattleRoom } from "./battle-room";
+import { judgeBattle } from "./judge";
 import { MatchmakingRoom } from "./matchmaking";
 import { handleTranscribe } from "./transcribe";
 
@@ -57,6 +59,28 @@ export default {
 				battles: profile ? await listUserBattles(env.DB, profile.id, limitFrom(url, 30, 100)) : [],
 				modalityStats: profile ? await getModalityStats(env.DB, profile.id) : [],
 			});
+		}
+
+		// Juez offline: el modo Práctica (un solo dispositivo, sin matchmaking ni
+		// salas) arma su BattleState en el cliente y pide el veredicto acá. Reusa
+		// el mismo juez IA que las batallas reales; nunca toca D1 ni ELO.
+		if (url.pathname === "/judge" && request.method === "POST") {
+			let raw: unknown;
+			try {
+				raw = await request.json();
+			} catch {
+				return json({ error: "JSON inválido" }, { status: 400 });
+			}
+			const parsed = battleStateSchema.safeParse(raw);
+			if (!parsed.success) {
+				return json({ error: "BattleState inválido" }, { status: 400 });
+			}
+			try {
+				const verdict = await judgeBattle(parsed.data, env);
+				return json({ verdict });
+			} catch {
+				return json({ error: "No se pudo evaluar la batalla" }, { status: 502 });
+			}
 		}
 
 		// Transcripción en vivo: proxy de streaming a Deepgram.

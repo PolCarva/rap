@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 
-export const SITE_NAME = "Rap Arena";
+export const SITE_NAME = "Rapear Online";
 export const SITE_TAGLINE = "Batallas de freestyle online 1 vs 1";
 export const SITE_DESCRIPTION =
 	"Batallá freestyle online en vivo: matchmaking 1 vs 1, beats, ranking ELO, perfiles, historial y veredictos de un juez IA.";
 export const SITE_LOCALE = "es_UY";
 export const SITE_LANGUAGE = "es-UY";
-export const DEFAULT_SITE_URL = "https://rap.raparena.workers.dev";
+export const DEFAULT_SITE_URL = "https://rapear.online";
 
 export const SEO_KEYWORDS = [
-	"Rap Arena",
+	"Rapear Online",
 	"batallas de freestyle",
 	"freestyle online",
 	"batallas de rap online",
@@ -123,7 +123,7 @@ export function siteGraphJsonLd() {
 				"@type": "WebSite",
 				"@id": absoluteUrl("/#website"),
 				name: SITE_NAME,
-				alternateName: "Rap Arena Freestyle",
+				alternateName: "Rapear Online Freestyle",
 				url: SITE_URL,
 				description: SITE_DESCRIPTION,
 				inLanguage: SITE_LANGUAGE,

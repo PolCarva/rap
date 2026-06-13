@@ -18,7 +18,7 @@ function synth(style: SynthStyle, name: string, bpm: number): SynthBeat {
 	return {
 		id: `synth:${style}-${bpm}`,
 		name,
-		producer: "RAP ARENA",
+		producer: "RAPEAR ONLINE",
 		audioUrl: `synth:${style}`,
 		bpm,
 		isActive: true,

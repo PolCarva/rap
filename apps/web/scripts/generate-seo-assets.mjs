@@ -1,5 +1,5 @@
 /**
- * Genera todos los assets visuales de SEO/branding de Rap Arena:
+ * Genera todos los assets visuales de SEO/branding de Rapear Online:
  * favicon (svg/ico/png), iconos PWA/Apple/maskable, safari mask y las
  * imágenes Open Graph / Twitter (general + por sección).
  *
@@ -78,7 +78,7 @@ function T(font, text, opts = {}) {
 const r = (n) => Math.round(n * 100) / 100;
 
 /* ============================================================
-   ICON — bold "RA" monogram, red blade, spotlight
+   ICON — bold "RO" monogram, red blade, spotlight
    ============================================================ */
 function iconSVG({ size = 512, rounded = true, pad = 1, bg = true } = {}) {
 	const s = size;
@@ -112,7 +112,7 @@ function iconSVG({ size = 512, rounded = true, pad = 1, bg = true } = {}) {
 		const bw = s * 0.5 * k;
 		const bh = s * 0.085 * k;
 		const blade = `<g transform="translate(${cx} ${bladeY}) skewX(-12)"><rect x="${-bw / 2}" y="${-bh / 2}" width="${bw}" height="${bh}" fill="${C.red}"/></g>`;
-		const ra = T(anton, "RA", {
+		const ra = T(anton, "RO", {
 			size: fs,
 			x: cx,
 			y: baseY,
@@ -127,7 +127,7 @@ function iconSVG({ size = 512, rounded = true, pad = 1, bg = true } = {}) {
 		return blade + ra + dot;
 	})();
 
-	return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" role="img" aria-label="Rap Arena">${defs}${bgRect}${mono}</svg>`;
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" role="img" aria-label="Rapear Online">${defs}${bgRect}${mono}</svg>`;
 }
 
 // Monochrome silhouette for safari-pinned-tab (single color, transparent bg)
@@ -136,7 +136,7 @@ function maskIconSVG() {
 	const cx = s / 2;
 	const fs = s * 0.5;
 	const baseY = cx + fs * 0.34;
-	const ra = T(anton, "RA", { size: fs, x: cx, y: baseY, anchor: "middle", fill: "#000000", skew: -7, tracking: -fs * 0.04 }).svg;
+	const ra = T(anton, "RO", { size: fs, x: cx, y: baseY, anchor: "middle", fill: "#000000", skew: -7, tracking: -fs * 0.04 }).svg;
 	const bw = s * 0.5;
 	const bh = s * 0.085;
 	const blade = `<g transform="translate(${cx} ${baseY + fs * 0.07}) skewX(-12)"><rect x="${-bw / 2}" y="${-bh / 2}" width="${bw}" height="${bh}" fill="#000000"/></g>`;
@@ -202,7 +202,7 @@ function ogFrame() {
 	<rect x="0" y="${H - 6}" width="${W * 0.34}" height="6" fill="${C.red}"/>`;
 }
 
-function ogFooter(right = "rap.raparena.workers.dev") {
+function ogFooter(right = "rapear.online") {
 	return `
 	<circle cx="74" cy="${H - 52}" r="6" fill="${C.red}"/>
 	${T(oswald, "FREESTYLE ONLINE · SIN DESCARGAS", { size: 22, x: 92, y: H - 44, fill: C.boneDim, tracking: 3 }).svg}
@@ -253,7 +253,7 @@ function buildOG({ kicker, lineTop, lineTopMode = "stroke", lineBot, sub, cta = 
 	const subEl = T(oswald, sub.toUpperCase(), { size: 27, x: 66, y: 436, fill: C.bone, tracking: 3 }).svg;
 	const ctaEl = ctaButton(cta, 64, 505);
 	const emblem = rightEmblem ? vsBadge(1012, 286, 1.12) : "";
-	return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Rap Arena">
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Rapear Online">
 ${ogDefs()}${ogFrame()}
 ${emblem}
 ${kickerEl}
@@ -322,9 +322,9 @@ writeSVG(maskIconSVG(), "safari-pinned-tab.svg");
 
 const og = buildOG({
 	kicker: "Underground Freestyle League",
-	lineTop: "RAP",
+	lineTop: "RAPEAR",
 	lineTopMode: "stroke",
-	lineBot: "ARENA",
+	lineBot: "ONLINE",
 	sub: "Batallas 1 vs 1 · Beats · Juez IA · Ranking ELO",
 	cta: "Batallá gratis",
 });

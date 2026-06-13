@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const metadata = createPageMetadata({
 	title: "Ranking ELO de freestyle",
 	description:
-		"Consultá el ranking global de Rap Arena con ELO, victorias, derrotas, win rate y rachas de los MCs de freestyle online.",
+		"Consultá el ranking global de Rapear Online con ELO, victorias, derrotas, win rate y rachas de los MCs de freestyle online.",
 	path: "/ranking",
 	image: "/og-ranking.png",
 	keywords: ["ranking freestyle", "ranking ELO rap", "tabla de MCs", "mejores MCs online"],
@@ -32,7 +32,7 @@ export default async function RankingPage() {
 							"@id": absoluteUrl("/ranking#webpage"),
 							url: absoluteUrl("/ranking"),
 							name: "Ranking ELO de freestyle",
-							description: "Tabla global de MCs de Rap Arena con ELO, victorias y rachas.",
+							description: "Tabla global de MCs de Rapear Online con ELO, victorias y rachas.",
 							isPartOf: { "@id": absoluteUrl("/#website") },
 							mainEntity: {
 								"@type": "ItemList",

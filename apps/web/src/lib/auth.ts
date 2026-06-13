@@ -1,4 +1,4 @@
-const DEV_SECRET = "rap-arena-dev-secret-change-in-prod";
+const DEV_SECRET = "rapear-online-dev-secret-change-in-prod";
 const COOKIE_NAME = "ra_session";
 const TOKEN_MAX_AGE = 60 * 60 * 24 * 30; // 30 days in seconds
 

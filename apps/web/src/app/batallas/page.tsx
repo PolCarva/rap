@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = createPageMetadata({
 	title: "Historial de batallas de rap",
 	description:
-		"Revisá las últimas batallas de freestyle en Rap Arena: resultados, scores, modos, beats y veredictos del juez IA.",
+		"Revisá las últimas batallas de freestyle en Rapear Online: resultados, scores, modos, beats y veredictos del juez IA.",
 	path: "/batallas",
 	image: "/og-batallas.png",
 	keywords: ["historial freestyle", "resultados batallas de rap", "veredictos freestyle", "batallas recientes"],
@@ -29,7 +29,7 @@ export default async function BattlesPage() {
 							"@id": absoluteUrl("/batallas#webpage"),
 							url: absoluteUrl("/batallas"),
 							name: "Historial de batallas de rap",
-							description: "Resultados recientes de batallas de freestyle online en Rap Arena.",
+							description: "Resultados recientes de batallas de freestyle online en Rapear Online.",
 							isPartOf: { "@id": absoluteUrl("/#website") },
 							mainEntity: {
 								"@type": "ItemList",

@@ -114,7 +114,7 @@ export async function judgeBattle(state: BattleState, env: Env): Promise<Verdict
 				headers: {
 					Authorization: `Bearer ${apiKey}`,
 					"Content-Type": "application/json",
-					"X-Title": "Rap Arena Judge",
+					"X-Title": "Rapear Online Judge",
 				},
 				body,
 				signal: AbortSignal.timeout(25_000),

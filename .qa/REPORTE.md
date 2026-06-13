@@ -1,4 +1,4 @@
-# Reporte de QA — RAP ARENA
+# Reporte de QA — RAPEAR ONLINE
 
 Fecha: 2026-06-13 · Método: Playwright (Chromium headless) contra el server local (`:3000` + realtime `:8787`), cámara/mic sintéticos inyectados, rival **Bot dev**. Capturas en `.qa/shots/`.
 

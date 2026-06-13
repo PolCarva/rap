@@ -67,7 +67,7 @@ export function PageTransitionProvider({ children }: { children: ReactNode }) {
 				{Array.from({ length: SLATS }, (_, i) => (
 					<span key={i} className="pt-slat" style={{ transitionDelay: `${i * 55}ms` }} />
 				))}
-				<span className="pt-tag">RAP ARENA</span>
+				<span className="pt-tag">RAPEAR ONLINE</span>
 			</div>
 		</TransitionContext.Provider>
 	);

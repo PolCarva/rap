@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: { params: ProfileParams }) {
 	if (decodedId === "me") {
 		return createPageMetadata({
 			title: "Mi perfil",
-			description: "Perfil personal de Rap Arena.",
+			description: "Perfil personal de Rapear Online.",
 			path: "/perfil/me",
 			image: "/og-profile.png",
 			noIndex: true,
@@ -29,7 +29,7 @@ export async function generateMetadata({ params }: { params: ProfileParams }) {
 	if (!profile) {
 		return createPageMetadata({
 			title: "Perfil no encontrado",
-			description: "Este perfil de Rap Arena no existe o ya no está disponible.",
+			description: "Este perfil de Rapear Online no existe o ya no está disponible.",
 			path: `/perfil/${encodeURIComponent(decodedId)}`,
 			image: "/og-profile.png",
 			noIndex: true,
@@ -39,10 +39,10 @@ export async function generateMetadata({ params }: { params: ProfileParams }) {
 	const winRate = profile.battles > 0 ? Math.round((profile.wins / profile.battles) * 100) : 0;
 	return createPageMetadata({
 		title: `${profile.handle} - perfil freestyle`,
-		description: `Stats de ${profile.handle} en Rap Arena: ${profile.elo} ELO, ${profile.battles} batallas, ${profile.wins} victorias y ${winRate}% win rate.`,
+		description: `Stats de ${profile.handle} en Rapear Online: ${profile.elo} ELO, ${profile.battles} batallas, ${profile.wins} victorias y ${winRate}% win rate.`,
 		path: `/perfil/${encodeURIComponent(profile.handle)}`,
 		image: "/og-profile.png",
-		imageAlt: `Perfil de ${profile.handle} en Rap Arena`,
+		imageAlt: `Perfil de ${profile.handle} en Rapear Online`,
 		keywords: [profile.handle, "perfil MC", "stats freestyle", "ELO rap"],
 	});
 }
@@ -98,7 +98,7 @@ export default async function ProfilePage({ params }: { params: ProfileParams })
 							"@type": "ProfilePage",
 							"@id": absoluteUrl(`${profilePath}#webpage`),
 							url: absoluteUrl(profilePath),
-							name: `${profile.handle} en Rap Arena`,
+							name: `${profile.handle} en Rapear Online`,
 							description: `Perfil freestyle de ${profile.handle}: ${profile.elo} ELO y ${profile.battles} batallas.`,
 							isPartOf: { "@id": absoluteUrl("/#website") },
 							mainEntity: {

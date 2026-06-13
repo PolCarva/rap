@@ -37,3 +37,5 @@ export function getRealtimeHttpUrl(): string {
 export const matchmakingUrl = () => `${getRealtimeWsUrl()}/ws/matchmaking`;
 export const battleUrl = (battleId: string) => `${getRealtimeWsUrl()}/ws/battle/${battleId}`;
 export const transcribeUrl = () => `${getRealtimeWsUrl()}/ws/transcribe`;
+/** Juez offline para el modo Práctica (un solo dispositivo, sin sala). */
+export const judgeUrl = () => `${getRealtimeHttpUrl()}/judge`;
