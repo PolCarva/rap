@@ -2,6 +2,7 @@
 
 import { createContext, createElement, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { parseAvatarConfig, type AvatarConfig } from "@rap/shared";
 
 export interface RapSession {
 	sessionId: string;
@@ -9,6 +10,7 @@ export interface RapSession {
 	name: string;
 	isGuest: boolean;
 	email: string | null;
+	avatarConfig: AvatarConfig | null;
 }
 
 const KEY = "rap-arena-session-v1";
@@ -20,6 +22,7 @@ function freshSession(): RapSession {
 		name: "",
 		isGuest: true,
 		email: null,
+		avatarConfig: null,
 	};
 }
 
@@ -39,6 +42,7 @@ function readSession(): RapSession {
 			name: parsed.name ?? "",
 			isGuest: parsed.isGuest ?? true,
 			email: parsed.email ?? null,
+			avatarConfig: parsed.avatarConfig ?? null,
 		};
 	} catch {
 		return freshSession();
@@ -56,6 +60,7 @@ export interface RapSessionContextValue {
 	loginWithPassword: (email: string, password: string) => Promise<boolean>;
 	register: (name: string, email: string, password: string) => Promise<boolean>;
 	updateHandle: (handle: string) => Promise<boolean>;
+	updateAvatar: (config: AvatarConfig) => Promise<boolean>;
 	refresh: () => Promise<void>;
 	logout: () => Promise<void>;
 }
@@ -80,7 +85,7 @@ function useRapSessionState(): RapSessionContextValue {
 	// Check server session cookie on mount
 	const refresh = useCallback(async () => {
 		await fetch("/api/auth/me")
-			.then((r) => r.json() as Promise<{ user: { id: string; handle: string; email: string | null } | null }>)
+			.then((r) => r.json() as Promise<{ user: { id: string; handle: string; email: string | null; avatarConfig?: string | null } | null }>)
 			.then(({ user }) => {
 				if (user) {
 					setSession((s) => ({
@@ -89,6 +94,7 @@ function useRapSessionState(): RapSessionContextValue {
 						name: user.handle.toUpperCase(),
 						isGuest: false,
 						email: user.email,
+						avatarConfig: user.avatarConfig != null ? parseAvatarConfig(user.avatarConfig) : s.avatarConfig,
 					}));
 				}
 			})
@@ -210,6 +216,31 @@ function useRapSessionState(): RapSessionContextValue {
 		}
 	}, []);
 
+	const updateAvatar = useCallback(async (config: AvatarConfig): Promise<boolean> => {
+		setAuthState("loading");
+		setAuthError(null);
+		try {
+			const res = await fetch("/api/auth/avatar", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(config),
+			});
+			const data = (await res.json()) as { avatarConfig?: AvatarConfig; error?: string };
+			if (!res.ok) {
+				setAuthError(data.error ?? "No se pudo guardar el avatar");
+				setAuthState("error");
+				return false;
+			}
+			setSession((s) => ({ ...s, avatarConfig: data.avatarConfig ?? config }));
+			setAuthState("idle");
+			return true;
+		} catch {
+			setAuthError("Error de conexión");
+			setAuthState("error");
+			return false;
+		}
+	}, []);
+
 	const logout = useCallback(async () => {
 		await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
 		setSession(freshSession());
@@ -226,6 +257,7 @@ function useRapSessionState(): RapSessionContextValue {
 		loginWithPassword,
 		register,
 		updateHandle,
+		updateAvatar,
 		refresh,
 		logout,
 	};

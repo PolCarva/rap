@@ -348,18 +348,19 @@ export function BattleStage({
 	const shownRemaining = remaining === null ? null : Math.min(remaining, mod.turnDurationSec);
 
 	// Palabras ya usadas por el MC activo (sus versos + lo que va diciendo).
+	const marksPromptUse = battle.modality !== "deconceptos";
 	const activeRoleNow = battle.phase === "turn" ? battle.activeRole : null;
 	const activeRunningText = activeRoleNow
 		? [...battle.verses[activeRoleNow], activeRoleNow === myRole ? liveText : opponentCaption].join(" ")
 		: "";
 	const usedWords = useMemo(() => {
-		if (activePromptWords.length === 0) return [];
+		if (!marksPromptUse || activePromptWords.length === 0) return [];
 		const text = normalizeWords(activeRunningText);
 		return activePromptWords.map((w) => {
 			const key = normalizeWords(w).split(/\s+/).pop()!;
 			return text.includes(key);
 		});
-	}, [activePromptWords, activeRunningText]);
+	}, [activePromptWords, activeRunningText, marksPromptUse]);
 
 	const beatIsActive = Boolean(battle.beat?.audioUrl && (battle.phase === "countdown" || battle.phase === "turn"));
 	const beatPlayer = useBeatPlayer();
@@ -526,9 +527,9 @@ export function BattleStage({
 					)}
 				</div>
 
-				{/* Prompt words: se tachan en vivo al usarlas */}
+				{/* Las palabras obligatorias se tachan en vivo; los conceptos no son checklist literal. */}
 				{activePromptWords.length > 0 && (
-					<div className="prompt-zone">
+					<div className={`prompt-zone${marksPromptUse ? "" : " concepts"}`}>
 						<div className="prompt-label">
 							{promptLabel}
 						</div>
@@ -536,7 +537,7 @@ export function BattleStage({
 							{activePromptWords.map((w, i) => (
 								<span key={w}>
 									{i > 0 && <span className="pw-sep"> · </span>}
-									<span className={`pw${usedWords[i] ? " used" : ""}`}>{w}</span>
+									<span className={`pw${marksPromptUse && usedWords[i] ? " used" : ""}`}>{w}</span>
 								</span>
 							))}
 						</div>

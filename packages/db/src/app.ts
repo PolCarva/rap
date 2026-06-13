@@ -118,6 +118,7 @@ export interface ProfileRow extends RankingRow {
 	isGuest: number;
 	email: string | null;
 	avatarUrl: string | null;
+	avatarConfig: string | null;
 	createdAt: number;
 	lastSeenAt: number;
 	lastBattleResult: string | null;
@@ -127,6 +128,7 @@ export interface UserAuthRow {
 	id: string;
 	handle: string;
 	email: string | null;
+	avatarConfig: string | null;
 	isGuest: number;
 	passwordHash: string | null;
 	elo: number;
@@ -290,6 +292,23 @@ export async function updateUserHandle(
 	}
 }
 
+export async function updateUserAvatar(
+	db: D1Database,
+	userId: string,
+	avatarConfigJson: string,
+): Promise<{ ok: true } | { error: string }> {
+	try {
+		const result = await db
+			.prepare(`UPDATE users SET avatar_config = ?, last_seen_at = ? WHERE id = ?`)
+			.bind(avatarConfigJson, Date.now(), userId)
+			.run();
+		if (!result.success) return { error: "No se pudo actualizar el avatar" };
+		return { ok: true };
+	} catch {
+		return { error: "No se pudo actualizar el avatar" };
+	}
+}
+
 export async function registerUser(
 	db: D1Database,
 	input: { name: string; email: string; passwordHash: string },
@@ -318,7 +337,7 @@ export async function registerUser(
 export async function getUserByEmail(db: D1Database, email: string): Promise<UserAuthRow | null> {
 	return db
 		.prepare(
-			`SELECT id, handle, email, is_guest AS isGuest, password_hash AS passwordHash,
+			`SELECT id, handle, email, avatar_config AS avatarConfig, is_guest AS isGuest, password_hash AS passwordHash,
 				elo, battles, wins, draws, losses, current_streak AS currentStreak, best_streak AS bestStreak
 			 FROM users WHERE email = ? LIMIT 1`,
 		)
@@ -329,7 +348,7 @@ export async function getUserByEmail(db: D1Database, email: string): Promise<Use
 export async function getUserById(db: D1Database, id: string): Promise<UserAuthRow | null> {
 	return db
 		.prepare(
-			`SELECT id, handle, email, is_guest AS isGuest, password_hash AS passwordHash,
+			`SELECT id, handle, email, avatar_config AS avatarConfig, is_guest AS isGuest, password_hash AS passwordHash,
 				elo, battles, wins, draws, losses, current_streak AS currentStreak, best_streak AS bestStreak
 			 FROM users WHERE id = ? LIMIT 1`,
 		)
@@ -736,7 +755,7 @@ export async function getModalityStats(db: D1Database, userId: string): Promise<
 export async function getProfile(db: D1Database, id: string): Promise<ProfileRow | null> {
 	return db
 		.prepare(
-			`SELECT id, handle, email, avatar_url AS avatarUrl, is_guest AS isGuest,
+			`SELECT id, handle, email, avatar_url AS avatarUrl, avatar_config AS avatarConfig, is_guest AS isGuest,
 				elo, battles, wins, draws, losses,
 				current_streak AS currentStreak, best_streak AS bestStreak,
 				last_battle_result AS lastBattleResult,

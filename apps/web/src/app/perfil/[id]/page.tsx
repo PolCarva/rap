@@ -2,7 +2,9 @@ import { getPublicProfile, getUserBattles, getUserModalityStats } from "@/lib/da
 import { getCurrentUser } from "@/lib/server-auth";
 import { AppNav } from "@/components/AppNav";
 import { ProfileEditor } from "@/components/ProfileEditor";
-import { MODALITIES, modalityIdSchema } from "@rap/shared";
+import { AvatarEditor } from "@/components/avatar/AvatarEditor";
+import { RapperAvatar } from "@/components/avatar/RapperAvatar";
+import { MODALITIES, avatarFromSeed, modalityIdSchema, parseAvatarConfig } from "@rap/shared";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +31,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
 	]);
 	const isOwnProfile = currentUser?.id === profile.id;
 	const winRate = profile.battles > 0 ? Math.round((profile.wins / profile.battles) * 100) : 0;
+	const avatar = profile.avatarConfig ? parseAvatarConfig(profile.avatarConfig) : avatarFromSeed(profile.id);
 
 	// Preferred modality = most battles played
 	const preferredModality = modalityStats[0] ?? null;
@@ -56,9 +59,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
 			>
 				<div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
 					<div className="profile-identity">
-						<span className="rapper-avatar large" aria-hidden="true">
-							<span />
-						</span>
+						<RapperAvatar config={avatar} size={120} title={`Avatar de ${profile.handle}`} />
 						<div>
 							<p style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: profile.isGuest ? "rgba(163,230,53,0.7)" : "rgba(232,25,44,0.85)", marginBottom: 6 }}>
 								{profile.isGuest ? "Invitado" : "MC Registrado"}
@@ -95,6 +96,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
 			</section>
 
 			{isOwnProfile && <ProfileEditor handle={profile.handle} />}
+			{isOwnProfile && !profile.isGuest && <AvatarEditor initial={avatar} seed={profile.id} />}
 
 			{/* Streak + records */}
 			<section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>

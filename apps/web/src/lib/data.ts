@@ -135,6 +135,7 @@ export async function getPublicProfile(id: string) {
 			handle: localProfile?.handle ?? realtimeProfile.handle,
 			email: localProfile?.email ?? realtimeProfile.email,
 			avatarUrl: localProfile?.avatarUrl ?? realtimeProfile.avatarUrl,
+			avatarConfig: localProfile?.avatarConfig ?? realtimeProfile.avatarConfig,
 		};
 	} catch {
 		return realtimeProfile;

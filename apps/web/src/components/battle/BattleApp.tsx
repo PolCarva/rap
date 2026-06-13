@@ -9,12 +9,12 @@ import { useBattleEngine } from "./useBattleEngine";
 import { useMediaStream } from "./useMediaStream";
 import { useRapSession, type RapSession } from "./useRapSession";
 
-export function BattleApp() {
+export function BattleApp({ initialModality = "minuto-libre" }: { initialModality?: ModalityId }) {
 	const engine = useBattleEngine();
 	// El stream vive acá para persistir entre setup y la batalla.
 	const media = useMediaStream();
 	const rapSession = useRapSession();
-	const [modality, setModality] = useState<ModalityId>("minuto-libre");
+	const [modality, setModality] = useState<ModalityId>(initialModality);
 	const { state } = engine;
 	const resumedRef = useRef(false);
 	// Última búsqueda, para re-encolar con la misma config si el rival abandona.
@@ -75,6 +75,7 @@ export function BattleApp() {
 	return (
 		<SetupScreen
 			error={state.error}
+			initialModality={modality}
 			media={media}
 			session={rapSession.session}
 			onSearch={(identity, m, beatId, devBot) => {

@@ -1,4 +1,5 @@
 export * from "./auth-token";
+export * from "./avatar";
 export * from "./modalities";
 export * from "./protocol";
 export * from "./rhyme";

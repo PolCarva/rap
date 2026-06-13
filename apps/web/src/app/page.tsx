@@ -176,7 +176,7 @@ export default function Home() {
 						const m = MODALITIES[id];
 						return (
 							<Reveal key={id} delay={index * 90} className="cine-mode-wrap">
-								<TransitionLink href="/arena" className="cine-mode">
+								<TransitionLink href={`/arena?modo=${encodeURIComponent(id)}`} className="cine-mode">
 									<span className="cine-mode-index">{String(index + 1).padStart(2, "0")}</span>
 									<span className="cine-mode-name">{m.name}</span>
 									<span className="cine-mode-desc">{m.description}</span>
