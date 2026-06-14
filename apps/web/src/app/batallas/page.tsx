@@ -37,7 +37,7 @@ export default async function BattlesPage() {
 									"@type": "ListItem",
 									position: index + 1,
 									name: `${battle.player1Name} vs ${battle.player2Name}`,
-									url: absoluteUrl("/batallas"),
+									url: absoluteUrl(`/batallas/${encodeURIComponent(battle.id)}`),
 								})),
 							},
 						},
@@ -82,7 +82,12 @@ export default async function BattlesPage() {
 										: battle.player2Name;
 
 							return (
-								<article key={battle.id} className={`hx-card${aborted ? " aborted" : ""}`}>
+								<Link
+									key={battle.id}
+									href={`/batallas/${encodeURIComponent(battle.id)}`}
+									className={`hx-card${aborted ? " aborted" : ""}`}
+									aria-label={`Ver detalle de ${battle.player1Name} vs ${battle.player2Name}`}
+								>
 									<div className="hx-card-top">
 										<span className="hx-mod">{modName.toUpperCase()}</span>
 										{battle.beatName && <span className="hx-beat">♪ {battle.beatName.toUpperCase()}</span>}
@@ -120,7 +125,7 @@ export default async function BattlesPage() {
 											</span>
 										)}
 									</div>
-								</article>
+								</Link>
 							);
 						})}
 					</section>

@@ -15,6 +15,7 @@ import {
 	type Role,
 } from "@rap/shared";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CrowdReactions } from "@/components/CrowdReactions";
 import { PlayerPanel } from "./PlayerPanel";
@@ -756,9 +757,11 @@ function ResultScreen({
 				</div>
 			)}
 
+			{stage === "final" && <ResultTranscript battle={battle} />}
+
 			{stage === "final" && !draw && (
 				<div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 10 }}>
-					<div style={{ display: "flex", gap: 18 }}>
+					<div style={{ display: "flex", gap: 18, flexWrap: "wrap", justifyContent: "center" }}>
 						{opp.connected ? (
 							<button
 								onClick={onRematch}
@@ -773,6 +776,7 @@ function ResultScreen({
 								<span>OTRA BATALLA</span>
 							</button>
 						)}
+						<Link href={`/batallas/${encodeURIComponent(battle.battleId)}`} className="btn-ghost">VER DETALLE</Link>
 						<button onClick={onLeave} className="btn-ghost">SALIR DE LA ARENA</button>
 					</div>
 					{opp.connected && opp.wantsRematch && !iWantRematch && (
@@ -787,6 +791,41 @@ function ResultScreen({
 					)}
 				</div>
 			)}
+		</div>
+	);
+}
+
+function ResultTranscript({ battle }: { battle: BattleState }) {
+	const rounds = Math.max(battle.verses.p1.length, battle.verses.p2.length);
+	if (rounds === 0) return null;
+	return (
+		<section className="result-transcript">
+			<div className="result-transcript-head">
+				<span>RESUMEN DE RIMAS</span>
+				<span>TRANSCRIPT COMPLETO</span>
+			</div>
+			<div className="result-transcript-rounds">
+				{Array.from({ length: rounds }, (_, index) => {
+					const round = index + 1;
+					return (
+						<div key={round} className="result-transcript-round">
+							<div className="result-round-label">R{round}</div>
+							<TranscriptVerse name={battle.players.p1.name} role="p1" text={battle.verses.p1[index] ?? ""} />
+							<TranscriptVerse name={battle.players.p2.name} role="p2" text={battle.verses.p2[index] ?? ""} />
+						</div>
+					);
+				})}
+			</div>
+		</section>
+	);
+}
+
+function TranscriptVerse({ name, role, text }: { name: string; role: Role; text: string }) {
+	const clean = text.trim();
+	return (
+		<div className={`result-verse ${role}`}>
+			<div className="result-verse-name">{name}</div>
+			<p>{clean || "Sin transcript registrado."}</p>
 		</div>
 	);
 }

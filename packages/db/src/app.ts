@@ -105,6 +105,33 @@ export interface BattleSummaryRow {
 	endedAt: number | null;
 }
 
+export interface BattleTurnRow {
+	id: string;
+	battleId: string;
+	role: "p1" | "p2";
+	round: number;
+	transcript: string;
+	audioKey: string | null;
+}
+
+export interface BattleJudgmentRow {
+	id: string;
+	battleId: string;
+	winner: "p1" | "p2" | "draw";
+	scoreP1: number;
+	scoreP2: number;
+	rationale: string;
+	detail: string | null;
+	model: string;
+	createdAt: number;
+}
+
+export interface BattleDetailRow {
+	battle: BattleSummaryRow;
+	turns: BattleTurnRow[];
+	judgment: BattleJudgmentRow | null;
+}
+
 export interface ModalityStatRow {
 	modality: string;
 	battles: number;
@@ -737,6 +764,74 @@ export async function listUserBattles(db: D1Database, userId: string, limit = 30
 		.bind(userId, userId, limit)
 		.all<BattleSummaryRow>();
 	return result.results ?? [];
+}
+
+export async function getBattleDetail(db: D1Database, id: string): Promise<BattleDetailRow | null> {
+	const battle = await db
+		.prepare(
+			`SELECT
+				id, modality, words,
+				player1_id AS player1Id,
+				player2_id AS player2Id,
+				player1_name AS player1Name,
+				player2_name AS player2Name,
+				beat_id AS beatId,
+				beat_name AS beatName,
+				beat_audio_url AS beatAudioUrl,
+				beat_bpm AS beatBpm,
+				winner, score_p1 AS scoreP1, score_p2 AS scoreP2,
+				CASE WHEN winner IS NOT NULL AND status = 'active' THEN 'finished' ELSE status END AS status,
+				started_at AS startedAt, ended_at AS endedAt
+			 FROM battles
+			 WHERE id = ?
+			 LIMIT 1`,
+		)
+		.bind(id)
+		.first<BattleSummaryRow>();
+	if (!battle) return null;
+
+	const [turnResult, judgment] = await Promise.all([
+		db
+			.prepare(
+				`SELECT
+					id,
+					battle_id AS battleId,
+					role,
+					round,
+					transcript,
+					audio_key AS audioKey
+				 FROM battle_turns
+				 WHERE battle_id = ?
+				 ORDER BY round ASC, CASE role WHEN 'p1' THEN 1 ELSE 2 END ASC`,
+			)
+			.bind(id)
+			.all<BattleTurnRow>(),
+		db
+			.prepare(
+				`SELECT
+					id,
+					battle_id AS battleId,
+					winner,
+					score_p1 AS scoreP1,
+					score_p2 AS scoreP2,
+					rationale,
+					detail,
+					model,
+					created_at AS createdAt
+				 FROM judgments
+				 WHERE battle_id = ?
+				 ORDER BY created_at DESC
+				 LIMIT 1`,
+			)
+			.bind(id)
+			.first<BattleJudgmentRow>(),
+	]);
+
+	return {
+		battle,
+		turns: turnResult.results ?? [],
+		judgment,
+	};
 }
 
 export async function getModalityStats(db: D1Database, userId: string): Promise<ModalityStatRow[]> {

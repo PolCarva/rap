@@ -6,6 +6,7 @@ import { AvatarEditor } from "@/components/avatar/AvatarEditor";
 import { RapperAvatar } from "@/components/avatar/RapperAvatar";
 import { absoluteUrl, breadcrumbJsonLd, createPageMetadata, jsonLd, SITE_NAME } from "@/lib/seo";
 import { MODALITIES, avatarFromSeed, modalityIdSchema, parseAvatarConfig } from "@rap/shared";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -266,8 +267,10 @@ export default async function ProfilePage({ params }: { params: ProfileParams })
 							const resultColor = result === "win" ? "rgba(34,197,94,0.85)" : result === "loss" ? "rgba(232,25,44,0.75)" : "rgba(255,255,255,0.5)";
 
 							return (
-								<div
+								<Link
 									key={b.id}
+									href={`/batallas/${encodeURIComponent(b.id)}`}
+									aria-label={`Ver detalle de ${profile.handle} vs ${oppName}`}
 									style={{
 										padding: "14px 20px",
 										borderTop: i > 0 ? "1px solid rgba(255,255,255,0.05)" : undefined,
@@ -275,6 +278,8 @@ export default async function ProfilePage({ params }: { params: ProfileParams })
 										alignItems: "center",
 										gap: 16,
 										flexWrap: "wrap",
+										color: "inherit",
+										textDecoration: "none",
 									}}
 								>
 									<div
@@ -306,8 +311,11 @@ export default async function ProfilePage({ params }: { params: ProfileParams })
 												{new Date(b.endedAt).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" })}
 											</p>
 										)}
+										<p style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.18em", color: "rgba(232,25,44,0.72)", marginTop: 4 }}>
+											VER DETALLE
+										</p>
 									</div>
-								</div>
+								</Link>
 							);
 						})}
 					</div>

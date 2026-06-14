@@ -1,5 +1,6 @@
 import {
 	getProfile,
+	getBattleDetail as getPersistedBattleDetail,
 	listBattles,
 	listBeats,
 	listRanking,
@@ -9,6 +10,7 @@ import {
 	upsertBeat,
 	deleteBeat,
 	type BattleSummaryRow,
+	type BattleDetailRow,
 	type BeatInput,
 	type ModalityStatRow,
 	type ProfileRow,
@@ -119,6 +121,26 @@ export async function getRecentBattles(limit = 20) {
 	} catch {
 		return [];
 	}
+}
+
+export async function getBattleDetail(id: string): Promise<BattleDetailRow | null> {
+	const db = getDb();
+	const realtime = async () =>
+		(await realtimeJson<{ battle: BattleDetailRow | null }>(`/battle?id=${encodeURIComponent(id)}`))?.battle ?? null;
+	const realtimeBattle = await realtime();
+	if (realtimeBattle) return realtimeBattle;
+	try {
+		if (db) {
+			const localBattle = await getPersistedBattleDetail(db, id);
+			if (localBattle) return localBattle;
+		}
+	} catch {
+		// fallback abajo
+	}
+	const summary = (await realtimeJson<{ battles: BattleSummaryRow[] }>("/battles?limit=100"))?.battles.find(
+		(battle) => battle.id === id,
+	);
+	return summary ? { battle: summary, turns: [], judgment: null } : null;
 }
 
 export async function getPublicProfile(id: string) {

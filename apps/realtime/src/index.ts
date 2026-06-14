@@ -1,4 +1,4 @@
-import { getModalityStats, getProfile, listBattles, listRanking, listUserBattles } from "@rap/db";
+import { getBattleDetail, getModalityStats, getProfile, listBattles, listRanking, listUserBattles } from "@rap/db";
 import { battleStateSchema } from "@rap/shared";
 import type { Env } from "./env";
 import { BattleRoom } from "./battle-room";
@@ -47,6 +47,13 @@ export default {
 		if (url.pathname === "/battles") {
 			if (!env.DB) return json({ battles: [] });
 			return json({ battles: await listBattles(env.DB, limitFrom(url, 50, 100)) });
+		}
+
+		if (url.pathname === "/battle") {
+			if (!env.DB) return json({ battle: null });
+			const id = url.searchParams.get("id") ?? "";
+			if (!id) return json({ error: "Falta id" }, { status: 400 });
+			return json({ battle: await getBattleDetail(env.DB, id) });
 		}
 
 		if (url.pathname === "/profile") {

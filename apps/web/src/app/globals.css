@@ -3070,6 +3070,9 @@ a.rk-row:hover {
 }
 
 .hx-card {
+	display: block;
+	color: inherit;
+	text-decoration: none;
 	border: 1px solid var(--line);
 	background: rgba(255, 255, 255, 0.018);
 	padding: 16px 20px 14px;
@@ -3190,6 +3193,406 @@ a.rk-row:hover {
 .hx-date {
 	margin-left: auto;
 	color: rgba(242, 236, 221, 0.3);
+}
+
+/* ---- Transcript post-batalla ---- */
+.result-transcript {
+	width: min(980px, 94vw);
+	max-height: 40vh;
+	overflow-y: auto;
+	border: 1px solid var(--line);
+	background: rgba(5, 5, 8, 0.72);
+	padding: 16px;
+	text-align: left;
+}
+
+.result-transcript-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+}
+
+.result-transcript-head span:first-child {
+	color: var(--red);
+}
+
+.result-transcript-rounds {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.result-transcript-round {
+	display: grid;
+	grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1fr);
+	gap: 10px;
+	align-items: stretch;
+}
+
+.result-round-label {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid rgba(242, 236, 221, 0.12);
+	background: rgba(255, 255, 255, 0.03);
+	font-family: var(--font-display);
+	font-size: 22px;
+	color: var(--red);
+}
+
+.result-verse {
+	min-width: 0;
+	border: 1px solid rgba(242, 236, 221, 0.1);
+	border-left: 3px solid var(--red);
+	background: rgba(255, 255, 255, 0.025);
+	padding: 11px 13px;
+}
+
+.result-verse.p2 {
+	border-left-color: #7df9cb;
+}
+
+.result-verse-name {
+	margin-bottom: 6px;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 0.2em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.result-verse p {
+	font-family: var(--font-body);
+	font-size: 14px;
+	line-height: 1.48;
+	color: var(--bone);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* ---- Detalle de batalla ---- */
+.bd-shell {
+	max-width: 980px;
+	margin: 0 auto;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding-bottom: 80px;
+}
+
+.bd-back {
+	align-self: flex-start;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+	text-decoration: none;
+}
+
+.bd-back:hover {
+	color: var(--red);
+}
+
+.bd-hero,
+.bd-section,
+.bd-empty {
+	border: 1px solid var(--line);
+	background: rgba(255, 255, 255, 0.018);
+}
+
+.bd-hero {
+	padding: 22px;
+}
+
+.bd-meta,
+.bd-subline {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.2em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+}
+
+.bd-meta span:first-child {
+	color: var(--red);
+}
+
+.bd-status {
+	margin-left: auto;
+	border: 1px solid rgba(242, 236, 221, 0.16);
+	padding: 4px 10px;
+	color: var(--bone-dim);
+}
+
+.bd-status.win {
+	border-color: rgba(125, 249, 203, 0.4);
+	color: #7df9cb;
+}
+
+.bd-status.off {
+	border-color: rgba(232, 25, 44, 0.45);
+	color: var(--red);
+}
+
+.bd-match {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+	align-items: center;
+	gap: 18px;
+	padding: 20px 0 16px;
+}
+
+.bd-player {
+	min-width: 0;
+	font-family: var(--font-display);
+	font-size: clamp(32px, 6vw, 72px);
+	line-height: 0.92;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+	text-decoration: none;
+	overflow-wrap: anywhere;
+}
+
+.bd-player.right {
+	text-align: right;
+}
+
+.bd-player.winner {
+	color: var(--bone);
+	text-shadow: 0 0 36px rgba(232, 25, 44, 0.55);
+}
+
+.bd-player:hover {
+	color: var(--red);
+}
+
+.bd-score {
+	font-family: var(--font-display);
+	font-size: clamp(34px, 5vw, 58px);
+	line-height: 1;
+	color: var(--red);
+	white-space: nowrap;
+}
+
+.bd-score i {
+	margin: 0 8px;
+	font-style: normal;
+	color: var(--line);
+}
+
+.bd-subline {
+	border-top: 1px solid rgba(242, 236, 221, 0.08);
+	padding-top: 12px;
+}
+
+.bd-section {
+	padding: 18px;
+}
+
+.bd-section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 14px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+}
+
+.bd-section-head p {
+	color: var(--red);
+}
+
+.bd-rounds {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.bd-round {
+	display: grid;
+	grid-template-columns: 78px minmax(0, 1fr) minmax(0, 1fr);
+	gap: 12px;
+}
+
+.bd-round-label {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid rgba(242, 236, 221, 0.12);
+	background: rgba(255, 255, 255, 0.025);
+	font-family: var(--font-display);
+	font-size: 24px;
+	color: var(--red);
+	text-align: center;
+}
+
+.bd-transcript-cell {
+	min-width: 0;
+	border: 1px solid rgba(242, 236, 221, 0.1);
+	border-left: 3px solid var(--red);
+	background: rgba(0, 0, 0, 0.18);
+	padding: 14px;
+}
+
+.bd-transcript-cell.p2 {
+	border-left-color: #7df9cb;
+}
+
+.bd-transcript-name {
+	margin-bottom: 8px;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 0.2em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.bd-transcript-cell p {
+	font-family: var(--font-body);
+	font-size: 15px;
+	line-height: 1.55;
+	color: var(--bone);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.bd-no-transcript,
+.bd-empty {
+	padding: 38px 20px;
+	text-align: center;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+}
+
+.bd-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 18px;
+}
+
+.bd-score-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 14px;
+}
+
+.bd-score-fallback {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	font-family: var(--font-display);
+	font-size: 28px;
+	text-transform: uppercase;
+	color: var(--bone);
+}
+
+.bd-judge-votes {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 14px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+}
+
+.bd-judge-votes span {
+	border: 1px solid rgba(242, 236, 221, 0.12);
+	background: rgba(255, 255, 255, 0.025);
+	padding: 6px 9px;
+}
+
+.bd-rationale {
+	margin-top: 14px;
+	border: 1px solid rgba(242, 236, 221, 0.1);
+	border-left: 4px solid var(--red);
+	background: rgba(0, 0, 0, 0.22);
+	padding: 14px 16px;
+	font-family: var(--font-body);
+	font-size: 14px;
+	line-height: 1.55;
+	color: var(--bone-dim);
+}
+
+.bd-rationale span {
+	display: block;
+	margin-bottom: 6px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--red);
+}
+
+@media (max-width: 760px) {
+	.result-transcript {
+		max-height: 46vh;
+	}
+
+	.result-transcript-head,
+	.bd-section-head {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.result-transcript-round,
+	.bd-round,
+	.bd-score-grid {
+		grid-template-columns: 1fr;
+	}
+
+	.result-round-label,
+	.bd-round-label {
+		min-height: 42px;
+	}
+
+	.bd-match {
+		grid-template-columns: 1fr;
+		gap: 10px;
+	}
+
+	.bd-player.right {
+		text-align: left;
+	}
+
+	.bd-score {
+		width: fit-content;
+		border-top: 1px solid rgba(242, 236, 221, 0.1);
+		border-bottom: 1px solid rgba(242, 236, 221, 0.1);
+		padding: 8px 0;
+	}
+
+	.bd-status {
+		margin-left: 0;
+	}
 }
 
 /* ---- Auth ---- */
