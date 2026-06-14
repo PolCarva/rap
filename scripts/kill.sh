@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Mata todos los procesos de dev: web (:3000), realtime worker (:8787) y sueltos.
+# Mata todos los procesos de dev: web (:3000), opennext local (:8787), realtime (:8788) y sueltos.
 set +e
 
-for port in 3000 8787; do
+for port in 3000 8787 8788; do
 	pids=$(lsof -ti:"$port" 2>/dev/null)
 	if [ -n "$pids" ]; then
 		echo "  · puerto $port → matando $pids"

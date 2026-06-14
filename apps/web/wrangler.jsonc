@@ -19,6 +19,12 @@
 		"binding": "ASSETS",
 		"directory": ".open-next/assets"
 	},
+	// Custom domains servidos por este worker. www.rapear.online entra al worker
+	// y el middleware (src/middleware.ts) lo 301-redirige a rapear.online (canónico).
+	"routes": [
+		{ "pattern": "rapear.online", "custom_domain": true },
+		{ "pattern": "www.rapear.online", "custom_domain": true }
+	],
 	"images": {
 		// Enable image optimization
 		// see https://opennext.js.org/cloudflare/howtos/image

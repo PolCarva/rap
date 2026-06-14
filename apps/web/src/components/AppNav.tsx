@@ -7,6 +7,7 @@ import { usePlayerCounts } from "@/components/usePlayerCounts";
 
 const LINKS = [
 	{ href: "/arena", label: "Arena" },
+	{ href: "/practica", label: "Práctica" },
 	{ href: "/ranking", label: "Ranking" },
 	{ href: "/batallas", label: "Historial" },
 ];
@@ -14,7 +15,7 @@ const LINKS = [
 export function AppNav({ status }: { status?: string }) {
 	const pathname = usePathname();
 	const counts = usePlayerCounts();
-	const liveText = status ?? `${counts.total > 0 ? counts.total : "-"} MCS EN LINEA`;
+	const liveText = status ?? `${counts.total > 0 ? counts.total : "-"} MCS EN LÍNEA`;
 
 	return (
 		<header className="app-nav">

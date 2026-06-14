@@ -22,10 +22,58 @@ export function PlayerPanel({ player, isSelf, isActive, caption, mirror, stream,
 	const videoRef = useRef<HTMLVideoElement>(null);
 	const subtitlePreviewRef = useRef<HTMLDivElement>(null);
 	const [showFullTranscript, setShowFullTranscript] = useState(false);
+	const [mediaSnapshot, setMediaSnapshot] = useState({ hasLiveTrack: false, hasLiveVideo: false });
 
 	useEffect(() => {
-		if (videoRef.current && stream) videoRef.current.srcObject = stream;
+		const update = () => {
+			const tracks = stream?.getTracks() ?? [];
+			setMediaSnapshot({
+				hasLiveTrack: tracks.some((track) => track.readyState === "live"),
+				hasLiveVideo: tracks.some((track) => track.kind === "video" && track.readyState === "live"),
+			});
+		};
+		update();
+		if (!stream) return;
+		const tracks = stream.getTracks();
+		stream.addEventListener("addtrack", update);
+		stream.addEventListener("removetrack", update);
+		for (const track of tracks) {
+			track.addEventListener("ended", update);
+			track.addEventListener("mute", update);
+			track.addEventListener("unmute", update);
+		}
+		return () => {
+			stream.removeEventListener("addtrack", update);
+			stream.removeEventListener("removetrack", update);
+			for (const track of tracks) {
+				track.removeEventListener("ended", update);
+				track.removeEventListener("mute", update);
+				track.removeEventListener("unmute", update);
+			}
+		};
 	}, [stream]);
+
+	useEffect(() => {
+		const video = videoRef.current;
+		if (!video) return;
+		if (!stream) {
+			video.srcObject = null;
+			return;
+		}
+		if (video.srcObject !== stream) video.srcObject = stream;
+		video.muted = videoMuted ?? isSelf;
+		const play = async () => {
+			try {
+				await video.play();
+			} catch {
+				// Si el navegador bloquea autoplay con audio remoto, priorizamos
+				// mostrar la cámara y dejamos el elemento muteado.
+				video.muted = true;
+				await video.play().catch(() => {});
+			}
+		};
+		void play();
+	}, [isSelf, stream, videoMuted]);
 
 	useEffect(() => {
 		if (!caption) setShowFullTranscript(false);
@@ -38,19 +86,24 @@ export function PlayerPanel({ player, isSelf, isActive, caption, mirror, stream,
 	const sideClass = isSelf ? "me" : "rival-side";
 	const activeClass = isActive ? " active" : " dimmed";
 	const timerLow = remaining !== null && remaining !== undefined && remaining <= 5;
+	const shouldRenderVideo = !!stream;
+	const showPlaceholder = !stream || !mediaSnapshot.hasLiveVideo;
+	const rivalMediaLabel = mediaStatus ?? (stream && !mediaSnapshot.hasLiveVideo ? "conectando video" : null);
 
 	return (
 		<div className={`fighter ${sideClass}${activeClass}`}>
 			{/* Video / placeholder */}
-			{stream ? (
+			{shouldRenderVideo && (
 				<video
 					ref={videoRef}
 					autoPlay
 					muted={videoMuted ?? isSelf}
 					playsInline
-					style={mirror ? { transform: "scaleX(-1) scaleX(-1)" } : undefined}
+					className={!mediaSnapshot.hasLiveVideo ? "fighter-video-waiting" : undefined}
+					style={mirror ? { transform: "scaleX(-1)" } : undefined}
 				/>
-			) : (
+			)}
+			{showPlaceholder && (
 				<div className={isSelf ? "fighter-no-signal" : "rival-visual"}>
 					{isSelf ? (
 						<>
@@ -61,7 +114,7 @@ export function PlayerPanel({ player, isSelf, isActive, caption, mirror, stream,
 						<>
 							<div className="rival-silhouette" />
 							{isBot && <div>BOT DE PRUEBA</div>}
-							{!isBot && mediaStatus && <div>{mediaStatus.toUpperCase()}</div>}
+							{!isBot && rivalMediaLabel && <div>{rivalMediaLabel.toUpperCase()}</div>}
 						</>
 					)}
 				</div>

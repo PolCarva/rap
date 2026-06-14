@@ -1,4 +1,5 @@
-const LOCAL_WS = "ws://127.0.0.1:8787";
+/** OpenNext dev ocupa :8787 para bindings locales; el worker realtime va en :8788. */
+const LOCAL_WS = "ws://127.0.0.1:8788";
 
 /** Infer rap-realtime URL from rap web hostname on *.workers.dev */
 export function inferWsFromHostname(hostname: string): string | null {

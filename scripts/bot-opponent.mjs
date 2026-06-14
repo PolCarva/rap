@@ -1,7 +1,7 @@
 // Rival automático para probar la UI con un humano del otro lado.
 // Se empareja, se pone "listo" y rapea en su turno. Uso:
 //   node scripts/bot-opponent.mjs [modality] [name]
-const BASE = "ws://127.0.0.1:8787";
+const BASE = "ws://127.0.0.1:8788";
 const MODALITY = process.argv[2] ?? "minuto-libre";
 const NAME = process.argv[3] ?? "MC Bot";
 const SESSION_ID = crypto.randomUUID();

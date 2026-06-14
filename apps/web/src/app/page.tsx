@@ -95,7 +95,7 @@ export default function Home() {
 
 	return (
 		<main className="cine">
-			<AppNav status={`${counts.total > 0 ? counts.total : "-"} MCS EN LINEA - UNDERGROUND FREESTYLE LEAGUE`} />
+			<AppNav status={`${counts.total > 0 ? counts.total : "-"} MCS EN LÍNEA - UNDERGROUND FREESTYLE LEAGUE`} />
 
 			{/* ============ ACTO 1: HERO 3D ============ */}
 			<section className="cine-hero" ref={heroRef}>
@@ -112,7 +112,8 @@ export default function Home() {
 									{c}
 								</span>
 							))}
-						</span>
+						</span> 
+						<span> </span>
 						<span className="line filled">
 							{[..."ONLINE"].map((c, i) => (
 								<span key={i} className="ch" style={{ animationDelay: `${0.6 + i * 0.07}s` }}>
@@ -120,6 +121,7 @@ export default function Home() {
 								</span>
 							))}
 						</span>
+						<span className="sr-only">Batalla de rap en vivo contra un MC aleatorio</span>
 					</h1>
 					<p className="cine-sub">TU VOZ ES EL ARMA · BATALLAS 1VS1 EN VIVO · UN JUEZ IA SIN PIEDAD</p>
 					<div className="cine-cta-row">

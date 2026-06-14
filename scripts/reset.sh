@@ -21,6 +21,6 @@ if [ "$NODE_MAJOR" -lt 22 ]; then
 	echo "⚠️  Node $(node -v 2>/dev/null) — wrangler necesita Node 22+. Corré: nvm use 22"
 fi
 
-echo "🚀 Levantando web (:3000) + realtime worker (:8787)…"
+echo "🚀 Levantando web (:3000) + realtime worker (:8788)…"
 echo "   Ctrl+C corta ambos."
 exec npm run dev

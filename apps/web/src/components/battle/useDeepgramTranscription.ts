@@ -37,13 +37,23 @@ export function useDeepgramTranscription() {
 	const wsRef = useRef<WebSocket | null>(null);
 	const ctxRef = useRef<AudioContext | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
+	const ownsStreamRef = useRef(false);
+	const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+	const nodeRef = useRef<AudioWorkletNode | null>(null);
 	const finalRef = useRef("");
+	const interimRef = useRef("");
 	const onUpdateRef = useRef<((full: string) => void) | null>(null);
 	/** true mientras el cierre del WS es intencional (stop/cleanup). */
 	const closingRef = useRef(false);
+	const sessionRef = useRef(0);
 
 	const cleanup = useCallback(() => {
 		closingRef.current = true;
+		nodeRef.current?.port.close();
+		nodeRef.current?.disconnect();
+		nodeRef.current = null;
+		sourceRef.current?.disconnect();
+		sourceRef.current = null;
 		try {
 			wsRef.current?.close();
 		} catch {
@@ -52,30 +62,41 @@ export function useDeepgramTranscription() {
 		wsRef.current = null;
 		ctxRef.current?.close().catch(() => {});
 		ctxRef.current = null;
-		streamRef.current?.getTracks().forEach((t) => t.stop());
+		if (ownsStreamRef.current) streamRef.current?.getTracks().forEach((t) => t.stop());
+		ownsStreamRef.current = false;
 		streamRef.current = null;
 	}, []);
 
 	const start = useCallback(
-		async (onUpdate?: (full: string) => void, keywords?: string[]) => {
+		async (onUpdate?: (full: string) => void, keywords?: string[], sourceStream?: MediaStream | null) => {
 			if (!supported || !secure) {
 				setError(!secure ? "insecure" : "unsupported");
 				return;
 			}
+			cleanup();
+			const session = ++sessionRef.current;
 			onUpdateRef.current = onUpdate ?? null;
 			finalRef.current = "";
+			interimRef.current = "";
 			setTranscript("");
 			setInterim("");
 			setError(null);
 
 			let stream: MediaStream;
-			try {
-				stream = await navigator.mediaDevices.getUserMedia({
-					audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-				});
-			} catch {
-				setError("not-allowed");
-				return;
+			const liveAudioTracks = sourceStream?.getAudioTracks().filter((track) => track.readyState === "live") ?? [];
+			if (liveAudioTracks.length > 0) {
+				stream = new MediaStream(liveAudioTracks);
+				ownsStreamRef.current = false;
+			} else {
+				try {
+					stream = await navigator.mediaDevices.getUserMedia({
+						audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+					});
+					ownsStreamRef.current = true;
+				} catch {
+					setError("not-allowed");
+					return;
+				}
 			}
 			streamRef.current = stream;
 
@@ -89,15 +110,18 @@ export function useDeepgramTranscription() {
 			ws.binaryType = "arraybuffer";
 			wsRef.current = ws;
 
-			ws.addEventListener("error", () => setError("connection"));
+			ws.addEventListener("error", () => {
+				if (sessionRef.current === session) setError("connection");
+			});
 			ws.addEventListener("close", () => {
 				// Cierre inesperado en plena escucha: avisar para activar el respaldo.
-				if (!closingRef.current && wsRef.current === ws) {
+				if (!closingRef.current && wsRef.current === ws && sessionRef.current === session) {
 					setError("connection");
 					setListening(false);
 				}
 			});
 			ws.addEventListener("message", (ev) => {
+				if (sessionRef.current !== session) return;
 				let msg: DeepgramMessage;
 				try {
 					msg = JSON.parse(ev.data as string);
@@ -113,19 +137,36 @@ export function useDeepgramTranscription() {
 				if (!text) return;
 				if (msg.is_final) {
 					finalRef.current = `${finalRef.current} ${text}`.trim();
+					interimRef.current = "";
 					setTranscript(finalRef.current);
 					setInterim("");
 					onUpdateRef.current?.(finalRef.current);
 				} else {
+					interimRef.current = text;
 					setInterim(text);
 					onUpdateRef.current?.(`${finalRef.current} ${text}`.trim());
 				}
 			});
 
-			await new Promise<void>((resolve) => {
-				if (ws.readyState === WebSocket.OPEN) return resolve();
-				ws.addEventListener("open", () => resolve(), { once: true });
+			const opened = await new Promise<boolean>((resolve) => {
+				if (ws.readyState === WebSocket.OPEN) {
+					resolve(true);
+					return;
+				}
+				const done = (ok: boolean) => {
+					window.clearTimeout(timer);
+					resolve(ok);
+				};
+				const timer = window.setTimeout(() => done(false), 4500);
+				ws.addEventListener("open", () => done(true), { once: true });
+				ws.addEventListener("error", () => done(false), { once: true });
+				ws.addEventListener("close", () => done(false), { once: true });
 			});
+			if (!opened || wsRef.current !== ws || sessionRef.current !== session) {
+				if (sessionRef.current === session) setError("connection");
+				cleanup();
+				return;
+			}
 
 			// Config con el sample rate real (por si el browser no respetó 16k) y
 			// las palabras de la batalla para boost de transcripción.
@@ -135,24 +176,40 @@ export function useDeepgramTranscription() {
 			await ctx.audioWorklet.addModule("/pcm-worklet.js");
 			const source = ctx.createMediaStreamSource(stream);
 			const node = new AudioWorkletNode(ctx, "pcm-processor");
+			sourceRef.current = source;
+			nodeRef.current = node;
 			node.port.onmessage = (e) => {
-				if (ws.readyState === WebSocket.OPEN) ws.send(e.data as ArrayBuffer);
+				if (sessionRef.current === session && ws.readyState === WebSocket.OPEN) ws.send(e.data as ArrayBuffer);
 			};
 			source.connect(node);
 			node.connect(ctx.destination); // pull silencioso (el worklet no escribe salida)
 
-			setListening(true);
+			if (sessionRef.current === session) setListening(true);
 		},
-		[supported, secure],
+		[supported, secure, cleanup],
 	);
 
 	/** Detiene la captura y devuelve la transcripción acumulada. */
-	const stop = useCallback((): string => {
+	const stop = useCallback(async (): Promise<string> => {
 		setListening(false);
-		const full = `${finalRef.current} ${interim}`.trim();
+		closingRef.current = true;
+		nodeRef.current?.port.close();
+		nodeRef.current?.disconnect();
+		nodeRef.current = null;
+		sourceRef.current?.disconnect();
+		sourceRef.current = null;
+		if (wsRef.current?.readyState === WebSocket.OPEN) {
+			try {
+				wsRef.current.send(JSON.stringify({ type: "CloseStream" }));
+				await new Promise((resolve) => window.setTimeout(resolve, 450));
+			} catch {
+				/* cerrar igual abajo */
+			}
+		}
+		const full = `${finalRef.current} ${interimRef.current}`.trim();
 		cleanup();
 		return full;
-	}, [interim, cleanup]);
+	}, [cleanup]);
 
 	return { supported, secure, listening, error, transcript, interim, start, stop };
 }

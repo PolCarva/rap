@@ -46,8 +46,22 @@ interface Props {
 	onRequeue?: (() => void) | null;
 }
 
-function useBattleClock(deadline: number | null): { remaining: number | null; now: number } {
+function useBattleClock(
+	deadline: number | null,
+	serverStartedAt: number | null,
+): { remaining: number | null; now: number } {
 	const [now, setNow] = useState(() => Date.now());
+	// Offset entre el reloj del cliente y el del servidor (DO). El `deadline` y
+	// `turnStartedAt` son timestamps del servidor; si el reloj del navegador está
+	// desajustado, comparar `deadline` contra `Date.now()` local calcula mal el
+	// tiempo restante. Un cliente adelantado veía `remaining <= 0` al instante de
+	// arrancar su turno y enviaba un verso vacío → el turno se cerraba solo y no
+	// había 1v1 en producción. Medimos el offset al inicio de cada turno
+	// (turnStartedAt ≈ "ahora" del server en ese momento) y lo aplicamos.
+	const [clockOffset, setClockOffset] = useState(0);
+	useEffect(() => {
+		if (serverStartedAt !== null) setClockOffset(Date.now() - serverStartedAt);
+	}, [serverStartedAt]);
 	useEffect(() => {
 		if (deadline === null) return;
 		// Refrescar de inmediato: si `now` quedó congelado de una fase sin
@@ -56,7 +70,12 @@ function useBattleClock(deadline: number | null): { remaining: number | null; no
 		const id = setInterval(() => setNow(Date.now()), 200);
 		return () => clearInterval(id);
 	}, [deadline]);
-	return { remaining: deadline === null ? null : Math.max(0, Math.ceil((deadline - now) / 1000)), now };
+	// `serverNow`: el reloj local proyectado al tiempo del servidor.
+	const serverNow = now - clockOffset;
+	return {
+		remaining: deadline === null ? null : Math.max(0, Math.ceil((deadline - serverNow) / 1000)),
+		now: serverNow,
+	};
 }
 
 /** Minúsculas y sin tildes, para chequear palabras usadas en vivo. */
@@ -164,7 +183,7 @@ export function BattleStage({
 	const opp = battle.players[oppRole];
 	const opponentIsBot = opp.isBot || (opp.sessionId?.startsWith("bot:") ?? false);
 	const isMyTurn = battle.phase === "turn" && battle.activeRole === myRole;
-	const { remaining, now } = useBattleClock(battle.deadline);
+	const { remaining, now } = useBattleClock(battle.deadline, battle.turnStartedAt);
 
 	const {
 		supported: dgSupported,
@@ -277,8 +296,8 @@ export function BattleStage({
 	}, [dgError]);
 
 	const activateMic = useCallback(() => {
-		recStart((full) => onCaption(full), turnPromptWords.length > 0 ? turnPromptWords : battle.words);
-	}, [recStart, onCaption, turnPromptWords, battle.words]);
+		recStart((full) => onCaption(full), turnPromptWords.length > 0 ? turnPromptWords : battle.words, localStream);
+	}, [recStart, onCaption, turnPromptWords, battle.words, localStream]);
 
 	useEffect(() => {
 		if (!isMyTurn) return;
@@ -296,17 +315,32 @@ export function BattleStage({
 		if (!useChunkFallback || !isMyTurn) return;
 		if (fallbackHandled.current === turnKey) return;
 		fallbackHandled.current = turnKey;
-		if (dgTranscript) setDraft((d) => [d.trim(), dgTranscript].filter(Boolean).join(" "));
+		const deepgramText = [dgTranscript, dgInterim].filter(Boolean).join(" ").trim();
+		if (deepgramText) setDraft((d) => [d.trim(), deepgramText].filter(Boolean).join(" "));
 		if (chunkSupported && chunkSecure && !chunkListening) {
-			chunkStart((full) => onCaption(full));
+			chunkStart((full) => onCaption(full), turnPromptWords.length > 0 ? turnPromptWords : battle.words, localStream);
 		}
-	}, [useChunkFallback, isMyTurn, turnKey, dgTranscript, chunkSupported, chunkSecure, chunkListening, chunkStart, onCaption]);
+	}, [
+		useChunkFallback,
+		isMyTurn,
+		turnKey,
+		dgTranscript,
+		dgInterim,
+		chunkSupported,
+		chunkSecure,
+		chunkListening,
+		chunkStart,
+		onCaption,
+		turnPromptWords,
+		battle.words,
+		localStream,
+	]);
 
-	const submit = useCallback(() => {
+	const submit = useCallback(async () => {
 		if (submittedTurn.current === turnKey) return;
 		submittedTurn.current = turnKey;
 		// Combinar lo transcripto por voz con lo tipeado (modo respaldo).
-		const voice = recSupported ? recStop() : "";
+		const voice = recSupported ? await recStop() : "";
 		const text = [voice, draft.trim()].filter(Boolean).join(" ").trim();
 		onSubmitVerse(text);
 		setDraft("");
@@ -316,7 +350,7 @@ export function BattleStage({
 	// tuyo). El server da unos segundos de gracia para el verso final.
 	useEffect(() => {
 		if (isMyTurn && remaining !== null && remaining <= 0 && submittedTurn.current !== turnKey) {
-			submit();
+			void submit();
 		}
 	}, [isMyTurn, remaining, turnKey, submit]);
 
@@ -479,7 +513,7 @@ export function BattleStage({
 					videoMuted={false}
 					mirror
 					isBot={opponentIsBot}
-					mediaStatus={opponentIsBot || remoteStream ? undefined : peerStatus === "failed" ? "media desconectada" : "conectando"}
+					mediaStatus={opponentIsBot || remoteStream ? undefined : peerStatus === "failed" ? "reconectando media" : "conectando media"}
 					remaining={battle.phase === "turn" && battle.activeRole === oppRole ? shownRemaining : null}
 				/>
 

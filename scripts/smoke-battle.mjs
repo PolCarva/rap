@@ -1,7 +1,7 @@
 // Smoke test del walking skeleton: empareja dos jugadores y los conduce por
 // toda la máquina de estados hasta el veredicto. Usa el WebSocket nativo de
 // Node 22. Uso: node scripts/smoke-battle.mjs [baseUrl]
-const BASE = process.argv[2] ?? "ws://127.0.0.1:8787";
+const BASE = process.argv[2] ?? "ws://127.0.0.1:8788";
 const MODALITY = process.env.MODALITY ?? "minuto-libre";
 const DEV_BOT = process.env.DEV_BOT === "1";
 

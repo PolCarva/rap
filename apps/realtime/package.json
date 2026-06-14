@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --persist-to ../../.wrangler-shared/state",
+    "dev": "wrangler dev --port 8788 --persist-to ../../.wrangler-shared/state",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit"
   },

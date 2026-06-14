@@ -25,26 +25,42 @@ const ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 
 export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomingSignal, onSignal }: Options) {
 	const pcRef = useRef<RTCPeerConnection | null>(null);
+	const remoteStreamRef = useRef<MediaStream | null>(null);
 	const handledSignalSeq = useRef(0);
 	const makingOffer = useRef(false);
 	const peerKeyRef = useRef<string | null>(null);
+	const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 	const [status, setStatus] = useState<PeerStatus>("idle");
 
+	const clearDisconnectTimer = useCallback(() => {
+		if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
+		disconnectTimerRef.current = null;
+	}, []);
+
+	const publishRemoteStream = useCallback(() => {
+		const stream = remoteStreamRef.current;
+		const liveTracks = stream?.getTracks().filter((track) => track.readyState === "live") ?? [];
+		setRemoteStream(liveTracks.length > 0 ? new MediaStream(liveTracks) : null);
+	}, []);
+
 	const closePeer = useCallback(() => {
+		clearDisconnectTimer();
 		pcRef.current?.close();
 		pcRef.current = null;
+		remoteStreamRef.current = null;
 		setRemoteStream(null);
 		setStatus("idle");
 		makingOffer.current = false;
-	}, []);
+		handledSignalSeq.current = 0;
+	}, [clearDisconnectTimer]);
 
 	const makeOffer = useCallback(
-		async (pc: RTCPeerConnection) => {
+		async (pc: RTCPeerConnection, options?: RTCOfferOptions) => {
 			if (makingOffer.current || pc.signalingState !== "stable") return;
 			makingOffer.current = true;
 			try {
-				const offer = await pc.createOffer();
+				const offer = await pc.createOffer(options);
 				await pc.setLocalDescription(offer);
 				if (pc.localDescription) {
 					onSignal({ type: "offer", description: pc.localDescription.toJSON() });
@@ -69,27 +85,75 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 			}
 		};
 		pc.ontrack = (event) => {
-			const [stream] = event.streams;
-			if (stream) {
-				setRemoteStream(stream);
-				return;
+			const next = remoteStreamRef.current ?? new MediaStream();
+			remoteStreamRef.current = next;
+			const tracks = event.streams[0]?.getTracks() ?? [event.track];
+			for (const track of tracks) {
+				if (next.getTracks().some((existing) => existing.id === track.id)) continue;
+				next.addTrack(track);
+				track.addEventListener("unmute", publishRemoteStream);
+				track.addEventListener("mute", publishRemoteStream);
+				track.addEventListener("ended", () => {
+					remoteStreamRef.current?.removeTrack(track);
+					publishRemoteStream();
+				});
 			}
-			setRemoteStream((prev) => {
-				const next = prev ?? new MediaStream();
-				if (!next.getTracks().some((track) => track.id === event.track.id)) next.addTrack(event.track);
-				return next;
-			});
+			publishRemoteStream();
+			setStatus("connected");
 		};
 		pc.onnegotiationneeded = () => {
 			if (!initiator && !pc.remoteDescription) return;
 			void makeOffer(pc).catch(() => setStatus("failed"));
 		};
 		pc.onconnectionstatechange = () => {
-			if (pc.connectionState === "connected") setStatus("connected");
-			if (pc.connectionState === "failed" || pc.connectionState === "disconnected") setStatus("failed");
+			const state = pc.connectionState;
+			if (state === "connected") {
+				clearDisconnectTimer();
+				setStatus("connected");
+				return;
+			}
+			if (state === "connecting" || state === "new") {
+				clearDisconnectTimer();
+				setStatus("connecting");
+				return;
+			}
+			if (state === "disconnected") {
+				setStatus("connecting");
+				clearDisconnectTimer();
+				disconnectTimerRef.current = setTimeout(() => {
+					if (pcRef.current === pc && pc.connectionState === "disconnected") setStatus("failed");
+				}, 5000);
+				return;
+			}
+			if (state === "failed") {
+				clearDisconnectTimer();
+				if (initiator && pc.signalingState === "stable") {
+					setStatus("connecting");
+					pc.restartIce();
+					void makeOffer(pc, { iceRestart: true }).catch(() => setStatus("failed"));
+					return;
+				}
+				setStatus("failed");
+			}
+			if (state === "closed") {
+				clearDisconnectTimer();
+				setStatus("idle");
+			}
+		};
+		pc.oniceconnectionstatechange = () => {
+			if (pc.iceConnectionState === "failed" && initiator && pc.signalingState === "stable") {
+				setStatus("connecting");
+				pc.restartIce();
+				void makeOffer(pc, { iceRestart: true }).catch(() => setStatus("failed"));
+			}
+		};
+		pc.onicecandidateerror = () => {
+			if (remoteStreamRef.current) {
+				setStatus("connecting");
+			}
 		};
 		return pc;
-	}, [initiator, makeOffer, onSignal]);
+	}, [clearDisconnectTimer, initiator, makeOffer, onSignal, publishRemoteStream]);
 
 	useEffect(() => {
 		if (peerKeyRef.current === null) {
@@ -120,13 +184,16 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 				if (sameKind) await sameKind.replaceTrack(track);
 				else pc.addTrack(track, localStream);
 			}
-			if (!cancelled) onSignal({ type: "media-ready" });
+			if (!cancelled) {
+				onSignal({ type: "media-ready" });
+				if (initiator && pc.signalingState === "stable") await makeOffer(pc);
+			}
 		};
 		void syncTracks().catch(() => setStatus("failed"));
 		return () => {
 			cancelled = true;
 		};
-	}, [createPeer, enabled, localStream, onSignal]);
+	}, [createPeer, enabled, initiator, localStream, makeOffer, onSignal]);
 
 	useEffect(() => {
 		if (!enabled || !localStream || !initiator) return;
@@ -154,7 +221,10 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 		const pc = createPeer();
 		const applySignal = async () => {
 			const signal = incomingSignal.signal;
-			if (signal.type === "media-ready") return;
+			if (signal.type === "media-ready") {
+				if (initiator && pc.signalingState === "stable") await makeOffer(pc);
+				return;
+			}
 			if (signal.type === "offer") {
 				const offerCollision = makingOffer.current || pc.signalingState !== "stable";
 				if (offerCollision && initiator) return;
@@ -176,7 +246,7 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 			}
 		};
 		void applySignal().catch(() => setStatus("failed"));
-	}, [createPeer, enabled, incomingSignal, initiator, onSignal, peerKey]);
+	}, [createPeer, enabled, incomingSignal, initiator, makeOffer, onSignal, peerKey]);
 
 	useEffect(() => {
 		if (enabled) return;

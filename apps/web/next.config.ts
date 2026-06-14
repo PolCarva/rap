@@ -6,7 +6,9 @@ const nextConfig: NextConfig = {
 	env: {
 		NEXT_PUBLIC_REALTIME_URL:
 			process.env.NEXT_PUBLIC_REALTIME_URL ??
-			(process.env.NODE_ENV === "production" ? "wss://rap-realtime.raparena.workers.dev" : ""),
+			(process.env.NODE_ENV === "production"
+				? "wss://rap-realtime.raparena.workers.dev"
+				: "ws://127.0.0.1:8788"),
 	},
 };
 

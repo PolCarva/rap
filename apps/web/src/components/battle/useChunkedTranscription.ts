@@ -51,12 +51,17 @@ export function useChunkedTranscription() {
 	const [transcript, setTranscript] = useState("");
 
 	const streamRef = useRef<MediaStream | null>(null);
+	const ownsStreamRef = useRef(false);
 	const activeRef = useRef(false);
 	const partsRef = useRef<string[]>([]);
 	const seqRef = useRef(0);
 	const onUpdateRef = useRef<((full: string) => void) | null>(null);
+	const recorderRef = useRef<MediaRecorder | null>(null);
+	const pendingRef = useRef<Set<Promise<void>>>(new Set());
+	const currentStopRef = useRef<Promise<void> | null>(null);
+	const sessionRef = useRef(0);
 
-	const transcribeChunk = useCallback(async (blob: Blob, format: string, index: number) => {
+	const transcribeChunk = useCallback(async (blob: Blob, format: string, index: number, session: number) => {
 		try {
 			const data = await blobToBase64(blob);
 			const res = await fetch("/api/transcribe", {
@@ -66,12 +71,12 @@ export function useChunkedTranscription() {
 			});
 			if (!res.ok) {
 				const err = (await res.json().catch(() => null)) as { error?: string } | null;
-				setError(err?.error ?? `HTTP ${res.status}`);
+				if (sessionRef.current === session) setError(err?.error ?? `HTTP ${res.status}`);
 				return;
 			}
 			const json = (await res.json()) as { text?: string };
 			const text = (json.text ?? "").trim();
-			if (text) {
+			if (text && sessionRef.current === session) {
 				partsRef.current[index] = text;
 				const full = partsRef.current.filter(Boolean).join(" ").trim();
 				setTranscript(full);
@@ -79,25 +84,38 @@ export function useChunkedTranscription() {
 				setError(null);
 			}
 		} catch {
-			setError("No se pudo transcribir el audio");
+			if (sessionRef.current === session) setError("No se pudo transcribir el audio");
 		}
 	}, []);
 
 	const start = useCallback(
-		async (onUpdate?: (full: string) => void, _keywords?: string[]) => {
+		async (onUpdate?: (full: string) => void, _keywords?: string[], sourceStream?: MediaStream | null) => {
 			void _keywords;
 			if (!supported || !secure) return;
+			activeRef.current = false;
+			if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop();
+			if (ownsStreamRef.current) streamRef.current?.getTracks().forEach((t) => t.stop());
+			const session = ++sessionRef.current;
 			onUpdateRef.current = onUpdate ?? null;
 			partsRef.current = [];
 			seqRef.current = 0;
+			pendingRef.current.clear();
+			currentStopRef.current = null;
 			setTranscript("");
 			setError(null);
 
-			try {
-				streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-			} catch {
-				setError("not-allowed");
-				return;
+			const liveAudioTracks = sourceStream?.getAudioTracks().filter((track) => track.readyState === "live") ?? [];
+			if (liveAudioTracks.length > 0) {
+				streamRef.current = new MediaStream(liveAudioTracks);
+				ownsStreamRef.current = false;
+			} else {
+				try {
+					streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+					ownsStreamRef.current = true;
+				} catch {
+					setError("not-allowed");
+					return;
+				}
 			}
 
 			activeRef.current = true;
@@ -106,17 +124,24 @@ export function useChunkedTranscription() {
 			const format = formatFromMime(mime);
 
 			const cycle = () => {
-				if (!activeRef.current || !streamRef.current) return;
+				if (!activeRef.current || !streamRef.current || sessionRef.current !== session) return;
 				const rec = new MediaRecorder(streamRef.current, mime ? { mimeType: mime } : undefined);
+				recorderRef.current = rec;
 				const chunks: Blob[] = [];
 				const index = seqRef.current++;
 				rec.ondataavailable = (e) => {
 					if (e.data.size > 0) chunks.push(e.data);
 				};
 				rec.onstop = () => {
+					if (recorderRef.current === rec) recorderRef.current = null;
+					if (sessionRef.current !== session) return;
 					const blob = new Blob(chunks, { type: mime || "audio/webm" });
-					if (blob.size > 1200) void transcribeChunk(blob, format, index); // saltar casi-vacíos
-					if (activeRef.current) cycle(); // arrancar el siguiente sin esperar la transcripción
+					const job = blob.size > 1200 ? transcribeChunk(blob, format, index, session) : Promise.resolve(); // saltar casi-vacíos
+					pendingRef.current.add(job);
+					currentStopRef.current = job.finally(() => {
+						pendingRef.current.delete(job);
+						if (activeRef.current && sessionRef.current === session) cycle(); // arrancar el siguiente sin esperar la transcripción
+					});
 				};
 				rec.start();
 				setTimeout(() => {
@@ -129,10 +154,27 @@ export function useChunkedTranscription() {
 	);
 
 	/** Detiene la captura y devuelve la transcripción acumulada. */
-	const stop = useCallback((): string => {
+	const stop = useCallback(async (): Promise<string> => {
 		activeRef.current = false;
 		setListening(false);
-		streamRef.current?.getTracks().forEach((t) => t.stop());
+		const rec = recorderRef.current;
+		if (rec && rec.state !== "inactive") {
+			await new Promise<void>((resolve) => {
+				const previous = rec.onstop;
+				rec.onstop = (ev) => {
+					previous?.call(rec, ev);
+					resolve();
+				};
+				rec.stop();
+			});
+		}
+		if (currentStopRef.current) await currentStopRef.current.catch(() => {});
+		await Promise.race([
+			Promise.all([...pendingRef.current]).catch(() => undefined),
+			new Promise((resolve) => window.setTimeout(resolve, 5000)),
+		]);
+		if (ownsStreamRef.current) streamRef.current?.getTracks().forEach((t) => t.stop());
+		ownsStreamRef.current = false;
 		streamRef.current = null;
 		return partsRef.current.filter(Boolean).join(" ").trim();
 	}, []);

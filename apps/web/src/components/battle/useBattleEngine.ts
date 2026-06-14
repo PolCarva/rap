@@ -269,7 +269,9 @@ export function useBattleEngine() {
 
 	const cancelSearch = useCallback(() => {
 		leftRef.current = true;
-		mmRef.current?.send(JSON.stringify({ kind: "cancel" }));
+		if (mmRef.current?.readyState === WebSocket.OPEN) {
+			mmRef.current.send(JSON.stringify({ kind: "cancel" }));
+		}
 		closeSockets();
 		setState(INITIAL);
 	}, [closeSockets]);

@@ -1,7 +1,7 @@
 // Verifica el endpoint /ws/transcribe: abre el WS, manda config + un poco de
 // audio falso, y reporta qué responde el worker. Sin DEEPGRAM_API_KEY debe
 // devolver {type:"Error", ...}. Uso: node scripts/smoke-transcribe.mjs
-const URL = process.argv[2] ?? "ws://127.0.0.1:8787/ws/transcribe";
+const URL = process.argv[2] ?? "ws://127.0.0.1:8788/ws/transcribe";
 
 const ws = new WebSocket(URL);
 ws.binaryType = "arraybuffer";

@@ -3,7 +3,7 @@
 // devuelve, palabra por palabra. Uso: node scripts/smoke-deepgram.mjs [pcmFile]
 import { readFileSync } from "node:fs";
 
-const URL = "ws://127.0.0.1:8787/ws/transcribe";
+const URL = "ws://127.0.0.1:8788/ws/transcribe";
 const PCM = process.argv[2] ?? "/tmp/dg.pcm";
 const pcm = readFileSync(PCM);
 
