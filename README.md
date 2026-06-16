@@ -48,6 +48,8 @@ OPENROUTER_API_KEY=
 OPENROUTER_STT_MODEL=openai/gpt-4o-mini-transcribe
 JWT_SECRET=   # firma cookies de sesión y tokens realtime
 BACKOFFICE_PASSWORD=
+TURN_KEY_ID=             # Cloudflare Realtime TURN key id
+TURN_KEY_API_TOKEN=      # Cloudflare Realtime TURN API token
 ```
 
 ## D1
@@ -97,6 +99,8 @@ npx wrangler secret put JWT_SECRET        # mismo valor en ambos workers
 cd ../web
 npx wrangler secret put JWT_SECRET
 npx wrangler secret put BACKOFFICE_PASSWORD
+npx wrangler secret put TURN_KEY_ID
+npx wrangler secret put TURN_KEY_API_TOKEN
 
 # Storage para beats subidos desde /backoffice
 npx wrangler r2 bucket create rap-beat-uploads
@@ -134,6 +138,25 @@ Si necesitás una pieza suelta: `npm run deploy:db`, `npm run deploy:web` o
 `NEXT_PUBLIC_REALTIME_URL` se inyecta en build-time del cliente (ya viene fijado
 en el script `deploy` de `apps/web` apuntando al worker realtime, esquema
 `wss://`).
+
+Para que el video sea confiable en redes estrictas, la web expone
+`/api/rtc/ice-servers`: genera credenciales temporales de Cloudflare TURN con
+`TURN_KEY_ID` + `TURN_KEY_API_TOKEN` y el navegador las usa al entrar a batalla.
+Si esos secrets faltan, cae automáticamente a STUN de respaldo.
+
+`NEXT_PUBLIC_RTC_ICE_SERVERS` queda sólo como override avanzado de emergencia.
+No pongas credenciales TURN permanentes en variables `NEXT_PUBLIC_*`: todo eso
+queda visible en el navegador.
+
+### Cloudflare TURN
+
+1. Entrá a Cloudflare Dashboard.
+2. Abrí Realtime > TURN.
+3. Creá una TURN key.
+4. Copiá el Key ID como `TURN_KEY_ID`.
+5. Creá/copíá el API token de esa TURN key como `TURN_KEY_API_TOKEN`.
+6. Guardá ambos en el worker web con `wrangler secret put`.
+7. Corré `npm run deploy:web`.
 
 ## Notas de V1
 

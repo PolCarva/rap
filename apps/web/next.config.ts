@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
 			(process.env.NODE_ENV === "production"
 				? "wss://rap-realtime.raparena.workers.dev"
 				: "ws://127.0.0.1:8788"),
+		NEXT_PUBLIC_RTC_ICE_SERVERS: process.env.NEXT_PUBLIC_RTC_ICE_SERVERS,
 	},
 };
 

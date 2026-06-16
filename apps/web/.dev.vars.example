@@ -12,3 +12,8 @@ JWT_SECRET=cambia-esto-en-produccion
 
 # Clave simple para /backoffice. Usala como password en la pantalla admin.
 BACKOFFICE_PASSWORD=cambia-esto-tambien
+
+# Opcional en dev; requerido para TURN real en producción.
+# Se generan en Cloudflare Dashboard > Realtime > TURN.
+TURN_KEY_ID=
+TURN_KEY_API_TOKEN=

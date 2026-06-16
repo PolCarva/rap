@@ -4,6 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type MediaStatus = "idle" | "requesting" | "ready" | "denied";
 
+const MEDIA_CONSTRAINTS: MediaStreamConstraints = {
+	video: {
+		width: { ideal: 960, max: 1280 },
+		height: { ideal: 540, max: 720 },
+		frameRate: { ideal: 24, max: 30 },
+		facingMode: "user",
+	},
+	audio: {
+		echoCancellation: true,
+		noiseSuppression: true,
+		autoGainControl: true,
+	},
+};
+
 /**
  * Prueba local de cámara y micrófono. Devuelve el stream para previsualizar y
  * un nivel de audio en vivo (0..1) para mostrar que el mic capta. Sin transporte:
@@ -63,7 +77,7 @@ export function useMediaStream() {
 		userStoppedRef.current = false;
 		setStatus("requesting");
 		try {
-			const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+			const stream = await navigator.mediaDevices.getUserMedia(MEDIA_CONSTRAINTS);
 			streamRef.current?.getTracks().forEach((t) => t.stop());
 			streamRef.current = stream;
 			setVersion((v) => v + 1);

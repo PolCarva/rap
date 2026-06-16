@@ -1,7 +1,7 @@
 "use client";
 
 import type { PlayerState } from "@rap/shared";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RhymeText } from "./RhymeText";
 
 interface Props {
@@ -18,18 +18,32 @@ interface Props {
 	remaining?: number | null;
 }
 
+function isReceivingTrack(track: MediaStreamTrack): boolean {
+	return track.readyState === "live" && !track.muted;
+}
+
 export function PlayerPanel({ player, isSelf, isActive, caption, mirror, stream, videoMuted, isBot, mediaStatus, remaining }: Props) {
 	const videoRef = useRef<HTMLVideoElement>(null);
+	const audioRef = useRef<HTMLAudioElement>(null);
 	const subtitlePreviewRef = useRef<HTMLDivElement>(null);
 	const [showFullTranscript, setShowFullTranscript] = useState(false);
-	const [mediaSnapshot, setMediaSnapshot] = useState({ hasLiveTrack: false, hasLiveVideo: false });
+	const [videoReady, setVideoReady] = useState(false);
+	const [mediaSnapshot, setMediaSnapshot] = useState({ hasLiveTrack: false, hasLiveAudio: false, hasLiveVideo: false });
+	const videoElementMuted = !isSelf && !(videoMuted ?? false) ? true : (videoMuted ?? isSelf);
+
+	const updateVideoReady = useCallback(() => {
+		const video = videoRef.current;
+		setVideoReady(Boolean(video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0));
+	}, []);
 
 	useEffect(() => {
 		const update = () => {
 			const tracks = stream?.getTracks() ?? [];
+			const receiving = tracks.filter(isReceivingTrack);
 			setMediaSnapshot({
-				hasLiveTrack: tracks.some((track) => track.readyState === "live"),
-				hasLiveVideo: tracks.some((track) => track.kind === "video" && track.readyState === "live"),
+				hasLiveTrack: receiving.length > 0,
+				hasLiveAudio: receiving.some((track) => track.kind === "audio"),
+				hasLiveVideo: receiving.some((track) => track.kind === "video"),
 			});
 		};
 		update();
@@ -56,23 +70,50 @@ export function PlayerPanel({ player, isSelf, isActive, caption, mirror, stream,
 	useEffect(() => {
 		const video = videoRef.current;
 		if (!video) return;
+		setVideoReady(false);
 		if (!stream) {
 			video.srcObject = null;
 			return;
 		}
 		if (video.srcObject !== stream) video.srcObject = stream;
-		video.muted = videoMuted ?? isSelf;
+		video.muted = videoElementMuted;
+		const onVideoReady = () => updateVideoReady();
+		video.addEventListener("loadedmetadata", onVideoReady);
+		video.addEventListener("loadeddata", onVideoReady);
+		video.addEventListener("canplay", onVideoReady);
+		video.addEventListener("playing", onVideoReady);
+		video.addEventListener("resize", onVideoReady);
 		const play = async () => {
 			try {
 				await video.play();
+				updateVideoReady();
 			} catch {
 				// Si el navegador bloquea autoplay con audio remoto, priorizamos
 				// mostrar la cámara y dejamos el elemento muteado.
 				video.muted = true;
-				await video.play().catch(() => {});
+				await video.play().then(updateVideoReady).catch(() => {});
 			}
 		};
 		void play();
+		return () => {
+			video.removeEventListener("loadedmetadata", onVideoReady);
+			video.removeEventListener("loadeddata", onVideoReady);
+			video.removeEventListener("canplay", onVideoReady);
+			video.removeEventListener("playing", onVideoReady);
+			video.removeEventListener("resize", onVideoReady);
+		};
+	}, [stream, updateVideoReady, videoElementMuted]);
+
+	useEffect(() => {
+		const audio = audioRef.current;
+		if (!audio) return;
+		if (!stream || isSelf || (videoMuted ?? false)) {
+			audio.srcObject = null;
+			return;
+		}
+		if (audio.srcObject !== stream) audio.srcObject = stream;
+		audio.muted = false;
+		void audio.play().catch(() => {});
 	}, [isSelf, stream, videoMuted]);
 
 	useEffect(() => {
@@ -87,19 +128,28 @@ export function PlayerPanel({ player, isSelf, isActive, caption, mirror, stream,
 	const activeClass = isActive ? " active" : " dimmed";
 	const timerLow = remaining !== null && remaining !== undefined && remaining <= 5;
 	const shouldRenderVideo = !!stream;
-	const showPlaceholder = !stream || !mediaSnapshot.hasLiveVideo;
-	const rivalMediaLabel = mediaStatus ?? (stream && !mediaSnapshot.hasLiveVideo ? "conectando video" : null);
+	const shouldRenderRemoteAudio = !!stream && !isSelf && !(videoMuted ?? false);
+	const hasVisibleVideo = mediaSnapshot.hasLiveVideo && videoReady;
+	const showPlaceholder = !stream || !hasVisibleVideo;
+	const rivalMediaLabel =
+		mediaStatus ??
+		(stream && !mediaSnapshot.hasLiveVideo
+			? "conectando video"
+			: stream && mediaSnapshot.hasLiveVideo && !videoReady
+				? "esperando imagen"
+				: null);
 
 	return (
 		<div className={`fighter ${sideClass}${activeClass}`}>
 			{/* Video / placeholder */}
+			{shouldRenderRemoteAudio && <audio ref={audioRef} autoPlay className="fighter-remote-audio" />}
 			{shouldRenderVideo && (
 				<video
 					ref={videoRef}
 					autoPlay
-					muted={videoMuted ?? isSelf}
+					muted={videoElementMuted}
 					playsInline
-					className={!mediaSnapshot.hasLiveVideo ? "fighter-video-waiting" : undefined}
+					className={!hasVisibleVideo ? "fighter-video-waiting" : undefined}
 					style={mirror ? { transform: "scaleX(-1)" } : undefined}
 				/>
 			)}

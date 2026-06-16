@@ -21,7 +21,58 @@ interface Options {
 	onSignal: (signal: RtcSignal) => void;
 }
 
-const ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+	{ urls: "stun:stun.cloudflare.com:3478" },
+	{ urls: "stun:stun.l.google.com:19302" },
+];
+const VIDEO_MAX_BITRATE = 850_000;
+const VIDEO_MAX_FRAMERATE = 24;
+
+function parseIceServers(raw: string | undefined): RTCIceServer[] {
+	if (!raw) return DEFAULT_ICE_SERVERS;
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		const servers = Array.isArray(parsed) ? parsed : [parsed];
+		const valid = servers.filter((server): server is RTCIceServer => {
+			if (!server || typeof server !== "object") return false;
+			const urls = (server as RTCIceServer).urls;
+			return typeof urls === "string" || (Array.isArray(urls) && urls.every((url) => typeof url === "string"));
+		});
+		return valid.length > 0 ? valid : DEFAULT_ICE_SERVERS;
+	} catch {
+		return DEFAULT_ICE_SERVERS;
+	}
+}
+
+const ICE_SERVERS = parseIceServers(process.env.NEXT_PUBLIC_RTC_ICE_SERVERS);
+
+async function fetchIceServers(): Promise<RTCIceServer[]> {
+	if (process.env.NEXT_PUBLIC_RTC_ICE_SERVERS) return ICE_SERVERS;
+	try {
+		const res = await fetch("/api/rtc/ice-servers", { cache: "no-store" });
+		if (!res.ok) return ICE_SERVERS;
+		const data = (await res.json()) as { iceServers?: unknown };
+		return parseIceServers(JSON.stringify(data.iceServers));
+	} catch {
+		return ICE_SERVERS;
+	}
+}
+
+function isReceivingTrack(track: MediaStreamTrack): boolean {
+	return track.readyState === "live" && !track.muted;
+}
+
+async function tuneSender(sender: RTCRtpSender): Promise<void> {
+	if (sender.track?.kind !== "video") return;
+	const params = sender.getParameters();
+	params.encodings = params.encodings?.length ? params.encodings : [{}];
+	params.encodings[0] = {
+		...params.encodings[0],
+		maxBitrate: VIDEO_MAX_BITRATE,
+		maxFramerate: VIDEO_MAX_FRAMERATE,
+	};
+	await sender.setParameters(params);
+}
 
 export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomingSignal, onSignal }: Options) {
 	const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -30,8 +81,11 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 	const makingOffer = useRef(false);
 	const peerKeyRef = useRef<string | null>(null);
 	const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 	const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 	const [status, setStatus] = useState<PeerStatus>("idle");
+	const [iceServers, setIceServers] = useState<RTCIceServer[]>(ICE_SERVERS);
+	const [iceServersReady, setIceServersReady] = useState(Boolean(process.env.NEXT_PUBLIC_RTC_ICE_SERVERS));
 
 	const clearDisconnectTimer = useCallback(() => {
 		if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
@@ -40,7 +94,7 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 
 	const publishRemoteStream = useCallback(() => {
 		const stream = remoteStreamRef.current;
-		const liveTracks = stream?.getTracks().filter((track) => track.readyState === "live") ?? [];
+		const liveTracks = stream?.getTracks().filter(isReceivingTrack) ?? [];
 		setRemoteStream(liveTracks.length > 0 ? new MediaStream(liveTracks) : null);
 	}, []);
 
@@ -53,7 +107,24 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 		setStatus("idle");
 		makingOffer.current = false;
 		handledSignalSeq.current = 0;
+		pendingIceCandidatesRef.current = [];
 	}, [clearDisconnectTimer]);
+
+	const flushPendingIceCandidates = useCallback(async (pc: RTCPeerConnection) => {
+		if (!pc.remoteDescription || pendingIceCandidatesRef.current.length === 0) return;
+		const pending = pendingIceCandidatesRef.current.splice(0);
+		for (const candidate of pending) {
+			await pc.addIceCandidate(candidate).catch(() => {});
+		}
+	}, []);
+
+	const addIceCandidate = useCallback(async (pc: RTCPeerConnection, candidate: RTCIceCandidateInit) => {
+		if (!pc.remoteDescription) {
+			pendingIceCandidatesRef.current.push(candidate);
+			return;
+		}
+		await pc.addIceCandidate(candidate).catch(() => {});
+	}, []);
 
 	const makeOffer = useCallback(
 		async (pc: RTCPeerConnection, options?: RTCOfferOptions) => {
@@ -74,7 +145,11 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 
 	const createPeer = useCallback(() => {
 		if (pcRef.current) return pcRef.current;
-		const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+		const pc = new RTCPeerConnection({
+			iceServers,
+			bundlePolicy: "max-bundle",
+			iceCandidatePoolSize: 2,
+		});
 		pcRef.current = pc;
 		setStatus("connecting");
 
@@ -153,7 +228,20 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 			}
 		};
 		return pc;
-	}, [clearDisconnectTimer, initiator, makeOffer, onSignal, publishRemoteStream]);
+	}, [clearDisconnectTimer, iceServers, initiator, makeOffer, onSignal, publishRemoteStream]);
+
+	useEffect(() => {
+		if (!enabled || iceServersReady) return;
+		let cancelled = false;
+		void fetchIceServers().then((servers) => {
+			if (cancelled) return;
+			setIceServers(servers);
+			setIceServersReady(true);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [enabled, iceServersReady]);
 
 	useEffect(() => {
 		if (peerKeyRef.current === null) {
@@ -166,7 +254,7 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 	}, [closePeer, peerKey]);
 
 	useEffect(() => {
-		if (!enabled || !localStream) return;
+		if (!enabled || !localStream || !iceServersReady) return;
 		const pc = createPeer();
 		let cancelled = false;
 		const syncTracks = async () => {
@@ -181,8 +269,13 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 				const senders = pc.getSenders();
 				if (senders.some((sender) => sender.track === track)) continue;
 				const sameKind = senders.find((sender) => sender.track?.kind === track.kind);
-				if (sameKind) await sameKind.replaceTrack(track);
-				else pc.addTrack(track, localStream);
+				if (sameKind) {
+					await sameKind.replaceTrack(track);
+					await tuneSender(sameKind).catch(() => {});
+				} else {
+					const sender = pc.addTrack(track, localStream);
+					await tuneSender(sender).catch(() => {});
+				}
 			}
 			if (!cancelled) {
 				onSignal({ type: "media-ready" });
@@ -193,10 +286,10 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 		return () => {
 			cancelled = true;
 		};
-	}, [createPeer, enabled, initiator, localStream, makeOffer, onSignal]);
+	}, [createPeer, enabled, iceServersReady, initiator, localStream, makeOffer, onSignal]);
 
 	useEffect(() => {
-		if (!enabled || !localStream || !initiator) return;
+		if (!enabled || !localStream || !initiator || !iceServersReady) return;
 		const pc = createPeer();
 		if (pc.signalingState !== "stable") return;
 		let cancelled = false;
@@ -212,10 +305,10 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 		return () => {
 			cancelled = true;
 		};
-	}, [createPeer, enabled, initiator, localStream, makeOffer]);
+	}, [createPeer, enabled, iceServersReady, initiator, localStream, makeOffer]);
 
 	useEffect(() => {
-		if (!enabled || !incomingSignal || incomingSignal.seq <= handledSignalSeq.current) return;
+		if (!enabled || !iceServersReady || !incomingSignal || incomingSignal.seq <= handledSignalSeq.current) return;
 		if (incomingSignal.peerKey !== peerKey) return;
 		handledSignalSeq.current = incomingSignal.seq;
 		const pc = createPeer();
@@ -229,6 +322,7 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 				const offerCollision = makingOffer.current || pc.signalingState !== "stable";
 				if (offerCollision && initiator) return;
 				await pc.setRemoteDescription(signal.description);
+				await flushPendingIceCandidates(pc);
 				const answer = await pc.createAnswer();
 				await pc.setLocalDescription(answer);
 				if (pc.localDescription) {
@@ -239,14 +333,15 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 			if (signal.type === "answer") {
 				if (pc.signalingState !== "have-local-offer") return;
 				await pc.setRemoteDescription(signal.description);
+				await flushPendingIceCandidates(pc);
 				return;
 			}
 			if (signal.type === "ice") {
-				await pc.addIceCandidate(signal.candidate);
+				await addIceCandidate(pc, signal.candidate);
 			}
 		};
 		void applySignal().catch(() => setStatus("failed"));
-	}, [createPeer, enabled, incomingSignal, initiator, makeOffer, onSignal, peerKey]);
+	}, [addIceCandidate, createPeer, enabled, flushPendingIceCandidates, iceServersReady, incomingSignal, initiator, makeOffer, onSignal, peerKey]);
 
 	useEffect(() => {
 		if (enabled) return;
