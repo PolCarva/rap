@@ -62,6 +62,10 @@ function isReceivingTrack(track: MediaStreamTrack): boolean {
 	return track.readyState === "live" && !track.muted;
 }
 
+function senderKind(pc: RTCPeerConnection, sender: RTCRtpSender): MediaStreamTrack["kind"] | null {
+	return sender.track?.kind ?? pc.getTransceivers().find((transceiver) => transceiver.sender === sender)?.receiver.track.kind ?? null;
+}
+
 async function tuneSender(sender: RTCRtpSender): Promise<void> {
 	if (sender.track?.kind !== "video") return;
 	const params = sender.getParameters();
@@ -150,6 +154,8 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 			bundlePolicy: "max-bundle",
 			iceCandidatePoolSize: 2,
 		});
+		pc.addTransceiver("audio", { direction: "sendrecv" });
+		pc.addTransceiver("video", { direction: "sendrecv" });
 		pcRef.current = pc;
 		setStatus("connecting");
 
@@ -259,24 +265,23 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 		let cancelled = false;
 		const syncTracks = async () => {
 			const liveTracks = localStream.getTracks().filter((track) => track.readyState === "live");
+			const replacements: Promise<void>[] = [];
+			const tunedSenders = new Set<RTCRtpSender>();
 			for (const sender of pc.getSenders()) {
-				if (sender.track && (!liveTracks.includes(sender.track) || sender.track.readyState !== "live")) {
-					pc.removeTrack(sender);
-				}
+				const kind = senderKind(pc, sender);
+				if (!kind) continue;
+				const track = liveTracks.find((liveTrack) => liveTrack.kind === kind) ?? null;
+				if (sender.track !== track) replacements.push(sender.replaceTrack(track));
+				if (track?.kind === "video") tunedSenders.add(sender);
 			}
 			for (const track of liveTracks) {
-				if (cancelled) return;
-				const senders = pc.getSenders();
-				if (senders.some((sender) => sender.track === track)) continue;
-				const sameKind = senders.find((sender) => sender.track?.kind === track.kind);
-				if (sameKind) {
-					await sameKind.replaceTrack(track);
-					await tuneSender(sameKind).catch(() => {});
-				} else {
-					const sender = pc.addTrack(track, localStream);
-					await tuneSender(sender).catch(() => {});
-				}
+				if (pc.getSenders().some((sender) => senderKind(pc, sender) === track.kind)) continue;
+				const sender = pc.addTrack(track, localStream);
+				if (track.kind === "video") tunedSenders.add(sender);
 			}
+			await Promise.all(replacements);
+			if (cancelled) return;
+			await Promise.all([...tunedSenders].map((sender) => tuneSender(sender).catch(() => {})));
 			if (!cancelled) {
 				onSignal({ type: "media-ready" });
 				if (initiator && pc.signalingState === "stable") await makeOffer(pc);
@@ -287,25 +292,6 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 			cancelled = true;
 		};
 	}, [createPeer, enabled, iceServersReady, initiator, localStream, makeOffer, onSignal]);
-
-	useEffect(() => {
-		if (!enabled || !localStream || !initiator || !iceServersReady) return;
-		const pc = createPeer();
-		if (pc.signalingState !== "stable") return;
-		let cancelled = false;
-		const sendInitialOffer = async () => {
-			try {
-				if (cancelled) return;
-				await makeOffer(pc);
-			} catch {
-				setStatus("failed");
-			}
-		};
-		void sendInitialOffer();
-		return () => {
-			cancelled = true;
-		};
-	}, [createPeer, enabled, iceServersReady, initiator, localStream, makeOffer]);
 
 	useEffect(() => {
 		if (!enabled || !iceServersReady || !incomingSignal || incomingSignal.seq <= handledSignalSeq.current) return;
