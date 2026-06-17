@@ -831,25 +831,38 @@ function ResultScreen({
 
 function ResultTranscript({ battle }: { battle: BattleState }) {
 	const rounds = Math.max(battle.verses.p1.length, battle.verses.p2.length);
+	const [open, setOpen] = useState(false);
 	if (rounds === 0) return null;
 	return (
-		<section className="result-transcript">
-			<div className="result-transcript-head">
-				<span>RESUMEN DE RIMAS</span>
-				<span>TRANSCRIPT COMPLETO</span>
-			</div>
-			<div className="result-transcript-rounds">
-				{Array.from({ length: rounds }, (_, index) => {
-					const round = index + 1;
-					return (
-						<div key={round} className="result-transcript-round">
-							<div className="result-round-label">R{round}</div>
-							<TranscriptVerse name={battle.players.p1.name} role="p1" text={battle.verses.p1[index] ?? ""} />
-							<TranscriptVerse name={battle.players.p2.name} role="p2" text={battle.verses.p2[index] ?? ""} />
-						</div>
-					);
-				})}
-			</div>
+		<section className={`result-transcript${open ? " open" : ""}`}>
+			<button
+				type="button"
+				className="result-transcript-toggle"
+				onClick={() => setOpen((v) => !v)}
+				aria-expanded={open}
+			>
+				<span className="result-transcript-title">RESUMEN DE RIMAS</span>
+				<span className="result-transcript-hint">
+					{open ? "OCULTAR" : `VER TRANSCRIPT · ${rounds} ${rounds === 1 ? "RONDA" : "RONDAS"}`}
+					<svg className="result-transcript-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+						<path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+					</svg>
+				</span>
+			</button>
+			{open && (
+				<div className="result-transcript-rounds">
+					{Array.from({ length: rounds }, (_, index) => {
+						const round = index + 1;
+						return (
+							<div key={round} className="result-transcript-round">
+								<div className="result-round-label">R{round}</div>
+								<TranscriptVerse name={battle.players.p1.name} role="p1" text={battle.verses.p1[index] ?? ""} />
+								<TranscriptVerse name={battle.players.p2.name} role="p2" text={battle.verses.p2[index] ?? ""} />
+							</div>
+						);
+					})}
+				</div>
+			)}
 		</section>
 	);
 }
