@@ -18,6 +18,7 @@ interface Props {
 		modality: ModalityId,
 		beatId: string | null,
 		devBot: boolean,
+		ranked: boolean,
 	) => void;
 }
 
@@ -38,6 +39,8 @@ export function SetupScreen({ error, initialModality, media, session, onSearch }
 	const [beatState, setBeatState] = useState<"loading" | "ready" | "empty">("loading");
 	const beatPreview = useBeatPlayer();
 	const [asGuest, setAsGuest] = useState(session.isGuest);
+	// Modo competitivo: por defecto "por ELO" cuando se juega con cuenta.
+	const [ranked, setRanked] = useState(true);
 	const [accountAka, setAccountAka] = useState(session.isGuest ? "" : session.name);
 	const [guestAka, setGuestAka] = useState(session.isGuest ? session.name : "");
 	const [devBot, setDevBot] = useState(false);
@@ -143,9 +146,9 @@ export function SetupScreen({ error, initialModality, media, session, onSearch }
 		}
 		beatPreview.stop();
 		if (canUseAccount) {
-			onSearch({ isGuest: false, name, email: session.email }, modality, selectedBeatId, showDevBot && devBot);
+			onSearch({ isGuest: false, name, email: session.email }, modality, selectedBeatId, showDevBot && devBot, ranked);
 		} else {
-			onSearch({ isGuest: true, name }, modality, selectedBeatId, showDevBot && devBot);
+			onSearch({ isGuest: true, name }, modality, selectedBeatId, showDevBot && devBot, false);
 		}
 	};
 
@@ -160,7 +163,7 @@ export function SetupScreen({ error, initialModality, media, session, onSearch }
 		}
 		const m = MODALITIES[modality];
 		const beat = selectedBeat ? selectedBeat.name : beatId === "random" ? "BEAT RANDOM" : "SIN BEAT";
-		const rank = canUseAccount ? "RANKEADA" : "INVITADO";
+		const rank = canUseAccount ? (ranked ? "POR ELO" : "SIN ELO") : "INVITADO";
 		const rival = showDevBot && devBot ? "BOT DEV" : rank;
 		return `${currentAka.toUpperCase()} · ${m.name.toUpperCase()} · ${beat.toUpperCase()} · ${rival}`;
 	};
@@ -214,9 +217,24 @@ export function SetupScreen({ error, initialModality, media, session, onSearch }
 							autoComplete="off"
 							spellCheck={false}
 						/>
-						<div className={`rank-note${canUseAccount ? " ranked" : ""}`}>
-							{canUseAccount ? "CUENTA ACTIVA · ESTA BATALLA CUENTA PARA TU ELO" : "MODO INVITADO · NO CUENTA PARA STATS"}
+						<div className={`rank-note${canUseAccount && ranked ? " ranked" : ""}`}>
+							{!canUseAccount
+								? "MODO INVITADO · NO CUENTA PARA STATS"
+								: ranked
+									? "POR ELO · SOLO TE CRUZÁS CON RIVALES QUE TAMBIÉN JUEGAN POR ELO"
+									: "SIN ELO · BATALLA CASUAL, NO MUEVE TU RANKING"}
 						</div>
+
+						{canUseAccount && (
+							<div className="identity-switch" role="tablist" aria-label="Tipo de batalla" style={{ marginTop: 14 }}>
+								<button className={ranked ? "active" : ""} onClick={() => setRanked(true)}>
+									Por ELO
+								</button>
+								<button className={!ranked ? "active" : ""} onClick={() => setRanked(false)}>
+									Sin ELO
+								</button>
+							</div>
+						)}
 					</div>
 				</div>
 			</section>

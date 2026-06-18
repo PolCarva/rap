@@ -18,7 +18,7 @@ export function BattleApp({ initialModality = "minuto-libre" }: { initialModalit
 	const { state } = engine;
 	const resumedRef = useRef(false);
 	// Última búsqueda, para re-encolar con la misma config si el rival abandona.
-	const [lastSearch, setLastSearch] = useState<{ session: RapSession; modality: ModalityId; beatId: string | null; devBot: boolean } | null>(null);
+	const [lastSearch, setLastSearch] = useState<{ session: RapSession; modality: ModalityId; beatId: string | null; devBot: boolean; ranked: boolean } | null>(null);
 
 	// Tras un refresh, retomar la batalla activa si la había.
 	const { resume } = engine;
@@ -60,7 +60,7 @@ export function BattleApp({ initialModality = "minuto-libre" }: { initialModalit
 						? () => {
 								const last = lastSearch;
 								engine.leave();
-								void engine.search(last.session, last.modality, last.beatId, last.devBot);
+								void engine.search(last.session, last.modality, last.beatId, last.devBot, last.ranked);
 							}
 						: null
 				}
@@ -78,7 +78,7 @@ export function BattleApp({ initialModality = "minuto-libre" }: { initialModalit
 			initialModality={modality}
 			media={media}
 			session={rapSession.session}
-			onSearch={(identity, m, beatId, devBot) => {
+			onSearch={(identity, m, beatId, devBot, ranked) => {
 				const nextSession: RapSession = identity.isGuest
 					? {
 							...rapSession.session,
@@ -107,9 +107,11 @@ export function BattleApp({ initialModality = "minuto-libre" }: { initialModalit
 						isGuest: nextSession.isGuest,
 					}),
 				}).catch(() => {});
+				// "Por ELO" solo es real con cuenta verificada; invitado nunca es ranked.
+				const effectiveRanked = ranked && !nextSession.isGuest && !!nextSession.userId;
 				setModality(m);
-				setLastSearch({ session: nextSession, modality: m, beatId, devBot });
-				engine.search(nextSession, m, beatId, devBot);
+				setLastSearch({ session: nextSession, modality: m, beatId, devBot, ranked: effectiveRanked });
+				engine.search(nextSession, m, beatId, devBot, effectiveRanked);
 			}}
 		/>
 	);

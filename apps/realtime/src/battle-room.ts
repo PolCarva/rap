@@ -108,6 +108,7 @@ export class BattleRoom extends DurableObject<Env> {
 			words: init.words,
 			wordPlan: init.wordPlan ?? null,
 			beat: init.beat ?? null,
+			ranked: init.ranked ?? false,
 			phase: "lobby",
 			round: 0,
 			totalRounds: mod.rounds,
@@ -656,6 +657,7 @@ export class BattleRoom extends DurableObject<Env> {
 			modality: state.modality,
 			words: state.words,
 			beat: state.beat,
+			ranked: state.ranked,
 			players: {
 				p1: this.identityOf(state, "p1"),
 				p2: this.identityOf(state, "p2"),

@@ -28,6 +28,8 @@ export interface BattlePersistInput {
 
 export interface BattleResultInput extends BattlePersistInput {
 	winner: "p1" | "p2" | "draw";
+	/** La batalla se jugó "por ELO". Si es false, nunca mueve ELO ni stats. */
+	ranked?: boolean;
 	scoreP1: number;
 	scoreP2: number;
 	rationale: string;
@@ -569,7 +571,10 @@ export async function recordBattleResult(db: D1Database, input: BattleResultInpu
 	const p2Result = input.winner === "p2" ? "win" : input.winner === "draw" ? "draw" : "loss";
 	const p1User = p1Id ? await getUserById(db, p1Id) : null;
 	const p2User = p2Id ? await getUserById(db, p2Id) : null;
-	const ranked = Boolean(p1User && p2User && p1Id !== p2Id);
+	const bothAccounts = Boolean(p1User && p2User && p1Id !== p2Id);
+	// Mueve ELO solo si la batalla se buscó "por ELO" Y ambos son cuentas reales.
+	// Una batalla "sin ELO" entre dos cuentas no toca ELO ni stats (regla 6).
+	const ranked = (input.ranked ?? true) && bothAccounts;
 	const elo = ranked
 		? calculateElo({
 				p1Elo: p1User!.elo,
@@ -581,7 +586,9 @@ export async function recordBattleResult(db: D1Database, input: BattleResultInpu
 				scoreP2: input.scoreP2,
 			})
 		: emptyElo(
-				"Batalla no rankeada: ambos MCs deben entrar con cuenta para mover ELO.",
+				bothAccounts
+					? "Batalla sin ELO: se jugó en modo casual, no mueve el ranking."
+					: "Batalla no rankeada: ambos MCs deben entrar con cuenta para mover ELO.",
 				p1User?.elo ?? null,
 				p2User?.elo ?? null,
 			);

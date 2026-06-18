@@ -49,6 +49,11 @@ export const mmClientMessageSchema = z.discriminatedUnion("kind", [
 		sessionId: z.string().min(1).max(80).optional(),
 		userId: z.string().min(1).max(80).nullable().optional(),
 		isGuest: z.boolean().optional(),
+		/**
+		 * Modo competitivo: el jugador quiere mover ELO. Solo se respeta con cuenta
+		 * verificada (token). Una cola "por ELO" jamás se cruza con una "sin ELO".
+		 */
+		ranked: z.boolean().optional(),
 		/** Solo dev/local: crea una batalla inmediata contra un bot. */
 		devBot: z.boolean().optional(),
 		/** Token firmado por la web que respalda el userId (modo rankeado). */
@@ -59,7 +64,7 @@ export const mmClientMessageSchema = z.discriminatedUnion("kind", [
 export type MmClientMessage = z.infer<typeof mmClientMessageSchema>;
 
 export const mmServerMessageSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("queued"), modality: modalityIdSchema }),
+	z.object({ kind: z.literal("queued"), modality: modalityIdSchema, ranked: z.boolean().optional() }),
 	z.object({
 		kind: z.literal("matched"),
 		battleId: z.string(),
@@ -68,6 +73,7 @@ export const mmServerMessageSchema = z.discriminatedUnion("kind", [
 		words: z.array(z.string()),
 		beat: beatSchema.nullable().optional(),
 		sessionId: z.string().optional(),
+		ranked: z.boolean().optional(),
 	}),
 	z.object({ kind: z.literal("error"), message: z.string() }),
 ]);
@@ -233,6 +239,8 @@ export const battleStateSchema = z.object({
 	words: z.array(z.string()),
 	wordPlan: wordPlanSchema.nullable().default(null),
 	beat: beatSchema.nullable(),
+	/** Batalla competitiva: al cerrarse mueve ELO de ambos. */
+	ranked: z.boolean().default(false),
 	phase: phaseSchema,
 	/** Ronda actual (1-indexed). */
 	round: z.number().int(),
@@ -270,6 +278,8 @@ export const roomInitSchema = z.object({
 	words: z.array(z.string()),
 	wordPlan: wordPlanSchema.nullable().optional(),
 	beat: beatSchema.nullable().optional(),
+	/** Si la batalla mueve ELO (ambos en cola "por ELO" con cuenta verificada). */
+	ranked: z.boolean().optional(),
 	players: z.object({
 		p1: z.union([z.string(), playerIdentitySchema]),
 		p2: z.union([z.string(), playerIdentitySchema]),

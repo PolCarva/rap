@@ -238,6 +238,7 @@ export function PracticeStage({ config, media, onExit, onRestart }: Props) {
 				words,
 				wordPlan,
 				beat: config.beat,
+				ranked: false,
 				phase: "result",
 				round: mod.rounds,
 				totalRounds: mod.rounds,

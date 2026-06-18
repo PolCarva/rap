@@ -215,12 +215,14 @@ export function useBattleEngine() {
 	}, [joinBattle]);
 
 	const search = useCallback(
-		async (session: RapSession, modality: ModalityId, beatId: string | null, devBot = false) => {
+		async (session: RapSession, modality: ModalityId, beatId: string | null, devBot = false, ranked = false) => {
 			leftRef.current = false;
 			lastPhaseRef.current = null;
 			reconnectAttemptsRef.current = 0;
 			setState({ ...INITIAL, view: "searching" });
 
+			// Solo se puede jugar "por ELO" con cuenta verificada.
+			const wantsRanked = ranked && !session.isGuest && !!session.userId;
 			// Modo rankeado: pedir el token que respalda el userId ante el worker.
 			let authToken: string | null = null;
 			if (!session.isGuest && session.userId) {
@@ -242,6 +244,7 @@ export function useBattleEngine() {
 						sessionId: session.sessionId,
 						userId: session.userId,
 						isGuest: session.isGuest,
+						ranked: wantsRanked,
 						devBot,
 						authToken,
 					}),
