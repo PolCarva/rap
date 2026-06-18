@@ -3,6 +3,7 @@
 import { MODALITIES, MODALITY_IDS, SYNTH_BEATS, type Beat, type ModalityId } from "@rap/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePlayerCounts } from "@/components/usePlayerCounts";
+import { MediaDevicePicker } from "./MediaDevicePicker";
 import { useBeatPlayer } from "./useBeatPlayer";
 import type { MediaController } from "./useMediaStream";
 import type { RapSession } from "./useRapSession";
@@ -46,6 +47,7 @@ export function SetupScreen({ error, initialModality, media, session, onSearch }
 
 	const isLoggedIn = !session.isGuest && !!session.userId;
 	const showDevBot = process.env.NODE_ENV === "development";
+	const mediaRequirements = useMemo(() => ({ audio: true, video: true }), []);
 
 	useEffect(() => {
 		setAsGuest(!isLoggedIn);
@@ -82,10 +84,12 @@ export function SetupScreen({ error, initialModality, media, session, onSearch }
 	}, []);
 
 	useEffect(() => {
-		if (media.status === "ready" && videoRef.current && media.stream.current) {
-			videoRef.current.srcObject = media.stream.current;
-		}
-	}, [media.status, media.stream]);
+		const video = videoRef.current;
+		if (!video) return;
+		const previewStream = media.stream.current;
+		const hasLiveVideo = previewStream?.getVideoTracks().some((track) => track.readyState === "live") ?? false;
+		video.srcObject = media.status === "ready" && hasLiveVideo ? previewStream : null;
+	}, [media.status, media.stream, media.version]);
 
 	const currentAka = asGuest ? guestAka : accountAka;
 	const canUseAccount = isLoggedIn && !asGuest;
@@ -319,6 +323,7 @@ export function SetupScreen({ error, initialModality, media, session, onSearch }
 							)}
 						</div>
 						<div style={{ display: "flex", flexDirection: "column", gap: 16, justifyContent: "center" }}>
+							<MediaDevicePicker media={media} requirements={mediaRequirements} />
 							<div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
 								<div className={`perm-pill${mediaState.hasCamera ? " ok" : ""}`}>
 									CÁMARA <span className="perm-state">{permissionLabel(mediaState.hasCamera)}</span>
@@ -333,7 +338,7 @@ export function SetupScreen({ error, initialModality, media, session, onSearch }
 								</button>
 							) : (
 								<button
-									onClick={media.start}
+									onClick={() => void media.start(mediaRequirements)}
 									disabled={media.status === "requesting"}
 									className="btn-arena"
 									style={{ alignSelf: "flex-start", padding: "16px 34px", fontSize: 17 }}

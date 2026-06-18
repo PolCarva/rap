@@ -206,6 +206,7 @@ export function BattleStage({
 	} = useChunkedTranscription();
 
 	const { ensureActive, stream } = media;
+	const mediaRequirements = useMemo(() => ({ audio: true, video: true }), []);
 	const [draft, setDraft] = useState("");
 	const [useChunkFallback, setUseChunkFallback] = useState(false);
 	const handledTurn = useRef<string | null>(null);
@@ -356,9 +357,9 @@ export function BattleStage({
 
 	useEffect(() => {
 		if (battle.phase === "ready_check" || battle.phase === "countdown" || battle.phase === "turn") {
-			void ensureActive();
+			void ensureActive(mediaRequirements);
 		}
-	}, [battle.phase, battle.replicaCount, ensureActive]);
+	}, [battle.phase, battle.replicaCount, ensureActive, mediaRequirements]);
 
 	const handleDraft = (text: string) => {
 		setDraft(text);
@@ -366,8 +367,8 @@ export function BattleStage({
 	};
 
 	const handleReady = useCallback(() => {
-		void ensureActive().finally(onReady);
-	}, [ensureActive, onReady]);
+		void ensureActive(mediaRequirements).finally(onReady);
+	}, [ensureActive, mediaRequirements, onReady]);
 
 	// Quién abre (para anunciarlo en la cuenta atrás).
 	const firstUp = battle.players[roundStarter(1, battle.replicaCount)];

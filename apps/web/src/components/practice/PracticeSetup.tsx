@@ -2,6 +2,7 @@
 
 import { MODALITIES, MODALITY_IDS, SYNTH_BEATS, type Beat, type ModalityId } from "@rap/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MediaDevicePicker } from "@/components/battle/MediaDevicePicker";
 import { useBeatPlayer } from "@/components/battle/useBeatPlayer";
 import type { MediaController } from "@/components/battle/useMediaStream";
 
@@ -13,6 +14,7 @@ export interface PracticeConfig {
 	beat: Beat | null;
 	name1: string;
 	name2: string;
+	useCamera: boolean;
 }
 
 interface Props {
@@ -38,10 +40,12 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 	const [beatState, setBeatState] = useState<"loading" | "ready" | "empty">("loading");
 	const [name1, setName1] = useState("RAPERO 1");
 	const [name2, setName2] = useState("RAPERO 2");
+	const [useCamera, setUseCamera] = useState(true);
 	const [toast, setToast] = useState<string | null>(null);
 	const beatPreview = useBeatPlayer();
 	const videoRef = useRef<HTMLVideoElement>(null);
 	const toastTimer = useRef<number | null>(null);
+	const mediaRequirements = useMemo(() => ({ audio: true, video: useCamera }), [useCamera]);
 
 	useEffect(() => setModality(initialModality), [initialModality]);
 
@@ -63,10 +67,12 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 	}, []);
 
 	useEffect(() => {
-		if (media.status === "ready" && videoRef.current && media.stream.current) {
-			videoRef.current.srcObject = media.stream.current;
-		}
-	}, [media.status, media.stream]);
+		const video = videoRef.current;
+		if (!video) return;
+		const previewStream = media.stream.current;
+		const hasLiveVideo = previewStream?.getVideoTracks().some((track) => track.readyState === "live") ?? false;
+		video.srcObject = media.status === "ready" && hasLiveVideo ? previewStream : null;
+	}, [media.status, media.stream, media.version]);
 
 	useEffect(
 		() => () => {
@@ -80,7 +86,7 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 	const stream = media.stream.current;
 	const hasCamera = media.status === "ready" && !!stream?.getVideoTracks().some((t) => t.readyState === "live");
 	const hasMicrophone = media.status === "ready" && !!stream?.getAudioTracks().some((t) => t.readyState === "live");
-	const mediaReady = hasCamera && hasMicrophone;
+	const signalReady = hasMicrophone && (!useCamera || hasCamera);
 
 	const showToast = (msg: string) => {
 		if (toastTimer.current) window.clearTimeout(toastTimer.current);
@@ -93,6 +99,11 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 		else void beatPreview.play(beat, 0.5);
 	};
 
+	const setCameraMode = (nextUseCamera: boolean) => {
+		setUseCamera(nextUseCamera);
+		if (media.status === "ready") void media.start({ audio: true, video: nextUseCamera });
+	};
+
 	const permissionLabel = (ready: boolean) => {
 		if (ready) return "LIVE";
 		if (media.status === "requesting") return "PIDIENDO";
@@ -103,8 +114,8 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 	const handleStart = () => {
 		const n1 = name1.trim() || "RAPERO 1";
 		const n2 = name2.trim() || "RAPERO 2";
-		if (!mediaReady) {
-			const missing = [!hasMicrophone ? "micrófono" : null, !hasCamera ? "cámara" : null].filter(Boolean);
+		if (!signalReady) {
+			const missing = [!hasMicrophone ? "micrófono" : null, useCamera && !hasCamera ? "cámara" : null].filter(Boolean);
 			showToast(`Activá ${missing.join(" + ")} en el paso 05 para practicar.`);
 			return;
 		}
@@ -112,7 +123,7 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 		const beat = beatId === "random"
 			? allBeats[Math.floor(Math.random() * allBeats.length)] ?? null
 			: allBeats.find((b) => b.id === beatId) ?? null;
-		onStart({ mode, modality, beat, name1: n1, name2: n2 });
+		onStart({ mode, modality, beat, name1: n1, name2: n2, useCamera });
 	};
 
 	return (
@@ -149,7 +160,7 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 					<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
 						<button onClick={() => setMode("solo")} className={`mode-card${mode === "solo" ? " sel" : ""}`}>
 							<div className="mode-card-name">Solo</div>
-							<div className="mode-card-desc">Tu cámara a pantalla completa con palabras, tiempo y transcripción en vivo. Entrená sin presión.</div>
+							<div className="mode-card-desc">Palabras, tiempo y transcripción en vivo. Entrená sin presión, con cámara o solo mic.</div>
 							<div className="mode-card-meta">
 								<span>1 MC</span>
 								<span className="mode-card-diff">SIN JUEZ</span>
@@ -157,7 +168,7 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 						</button>
 						<button onClick={() => setMode("versus")} className={`mode-card${mode === "versus" ? " sel" : ""}`}>
 							<div className="mode-card-name">De a dos</div>
-							<div className="mode-card-desc">Como una batalla, pero los dos usan esta misma cámara. Se turnan el teléfono y al final el juez decide quién gana.</div>
+							<div className="mode-card-desc">Como una batalla, pero los dos usan este mismo dispositivo. Se turnan el teléfono y al final el juez decide quién gana.</div>
 							<div className="mode-card-meta">
 								<span>2 MCS · MISMO EQUIPO</span>
 								<span className="mode-card-diff">CON JUEZ</span>
@@ -275,23 +286,23 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 				</div>
 			</section>
 
-			{/* 05 — Mic + Cámara */}
-			<section className={`config-step${mediaReady ? " done" : ""}`}>
+			{/* 05 — Señal */}
+			<section className={`config-step${signalReady ? " done" : ""}`}>
 				<div className="config-step-num">05</div>
 				<div>
-					<h2 className="config-step-title">Mic + Cámara</h2>
-					<div className="config-step-hint">Sin señal no hay práctica</div>
+					<h2 className="config-step-title">Señal de práctica</h2>
+					<div className="config-step-hint">Podés usar cámara o entrenar solo con micrófono</div>
 					<div className="media-setup-grid">
 						<div className="cam-box">
-							{hasCamera ? (
+							{useCamera && hasCamera ? (
 								<video ref={videoRef} autoPlay muted playsInline />
 							) : (
 								<div className="cam-no-signal">
-									<div className="big">SIN SEÑAL</div>
-									<div>ESPERANDO PERMISOS DE CÁMARA</div>
+									<div className="big">{useCamera ? "SIN SEÑAL" : "SOLO MIC"}</div>
+									<div>{useCamera ? "ESPERANDO PERMISOS DE CÁMARA" : "CÁMARA DESACTIVADA"}</div>
 								</div>
 							)}
-							{hasCamera && (
+							{useCamera && hasCamera && (
 								<div className="cam-preview-label">
 									<span className="arena-live-dot" style={{ margin: 0 }} />
 									PREVIEW
@@ -299,9 +310,18 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 							)}
 						</div>
 						<div style={{ display: "flex", flexDirection: "column", gap: 16, justifyContent: "center" }}>
+							<div className="identity-switch" role="tablist" aria-label="Tipo de señal">
+								<button className={useCamera ? "active" : ""} onClick={() => setCameraMode(true)}>
+									Mic + cámara
+								</button>
+								<button className={!useCamera ? "active" : ""} onClick={() => setCameraMode(false)}>
+									Solo mic
+								</button>
+							</div>
+							<MediaDevicePicker media={media} requirements={mediaRequirements} />
 							<div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-								<div className={`perm-pill${hasCamera ? " ok" : ""}`}>
-									CÁMARA <span className="perm-state">{permissionLabel(hasCamera)}</span>
+								<div className={`perm-pill${!useCamera || hasCamera ? " ok" : ""}`}>
+									CÁMARA <span className="perm-state">{useCamera ? permissionLabel(hasCamera) : "OFF"}</span>
 								</div>
 								<div className={`perm-pill${hasMicrophone ? " ok" : ""}`}>
 									MICRÓFONO <span className="perm-state">{permissionLabel(hasMicrophone)}</span>
@@ -313,12 +333,18 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 								</button>
 							) : (
 								<button
-									onClick={media.start}
+									onClick={() => void media.start(mediaRequirements)}
 									disabled={media.status === "requesting"}
 									className="btn-arena"
 									style={{ alignSelf: "flex-start", padding: "16px 34px", fontSize: 17 }}
 								>
-									<span>{media.status === "requesting" ? "PIDIENDO PERMISOS" : "ACTIVAR MIC + CÁMARA"}</span>
+									<span>
+										{media.status === "requesting"
+											? "PIDIENDO PERMISOS"
+											: useCamera
+												? "ACTIVAR MIC + CÁMARA"
+												: "ACTIVAR MIC"}
+									</span>
 								</button>
 							)}
 							{hasMicrophone && (
@@ -343,17 +369,19 @@ export function PracticeSetup({ initialModality, media, onStart }: Props) {
 				)}
 				<button
 					onClick={handleStart}
-					className={`btn-arena${mediaReady ? "" : " needs-check"}`}
+					className={`btn-arena${signalReady ? "" : " needs-check"}`}
 					style={{ fontSize: "clamp(22px, 2.4vw, 32px)", padding: "22px 64px" }}
 				>
 					<span>EMPEZAR PRÁCTICA</span>
 				</button>
 				<div className="launch-summary">
-					{mediaReady
+					{signalReady
 						? `${mode === "solo" ? "SOLO" : "DE A DOS"} · ${MODALITIES[modality].name.toUpperCase()} · ${
 								beatId === "random" ? "BEAT RANDOM" : (allBeats.find((b) => b.id === beatId)?.name ?? "SIN BEAT").toUpperCase()
-							}`
-						: "ACTIVÁ MIC + CÁMARA PARA EMPEZAR"}
+							} · ${useCamera ? "MIC + CÁMARA" : "SOLO MIC"}`
+						: useCamera
+							? "ACTIVÁ MIC + CÁMARA PARA EMPEZAR"
+							: "ACTIVÁ MIC PARA EMPEZAR"}
 				</div>
 			</section>
 		</div>

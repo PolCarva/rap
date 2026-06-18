@@ -695,6 +695,49 @@ body {
 	color: #5a5460;
 }
 
+.device-picker {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+	gap: 12px;
+	width: 100%;
+}
+
+.device-field {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0;
+	text-transform: uppercase;
+	color: var(--bone-dim);
+}
+
+.device-select {
+	width: 100%;
+	min-width: 0;
+	border: 1px solid var(--line);
+	background: rgba(10, 9, 12, 0.92);
+	color: var(--bone);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0;
+	text-transform: uppercase;
+	padding: 12px 14px;
+	outline: none;
+}
+
+.device-select:focus {
+	border-color: rgba(232, 25, 44, 0.65);
+	box-shadow: 0 0 0 1px rgba(232, 25, 44, 0.25);
+}
+
+.device-select:disabled {
+	opacity: 0.48;
+	color: var(--bone-dim);
+}
+
 /* ---- Battle arena styles ---- */
 .battle-arena {
 	/* Fixed por encima del nav del sitio (z 120): batalla full-screen e inmersiva. */

@@ -77,6 +77,7 @@ export function PracticeStage({ config, media, onExit, onRestart }: Props) {
 	const cdMs = countdownMs(bpm);
 	const batchesPerTurn = promptBatchesPerTurn(mod, bpm);
 	const promptInterval = promptIntervalMs(mod, bpm);
+	const mediaRequirements = useMemo(() => ({ audio: true, video: config.useCamera }), [config.useCamera]);
 
 	// Palabras/plan sorteados una sola vez para toda la sesión (init perezoso).
 	const [plan] = useState<{ words: string[]; wordPlan: WordPlan | null }>(() =>
@@ -132,8 +133,8 @@ export function PracticeStage({ config, media, onExit, onRestart }: Props) {
 
 	const { ensureActive } = media;
 	useEffect(() => {
-		if (phase === "countdown" || phase === "turn") void ensureActive();
-	}, [phase, step, ensureActive]);
+		if (phase === "countdown" || phase === "turn") void ensureActive(mediaRequirements);
+	}, [phase, step, ensureActive, mediaRequirements]);
 
 	// Palabras activas para el turno actual (tanda por tiempo/compás).
 	const promptWords = useMemo(() => {
@@ -302,9 +303,9 @@ export function PracticeStage({ config, media, onExit, onRestart }: Props) {
 	}, [step, recSupported, recStop, draft, verses, activeRole, current?.round, advance]);
 
 	const startCountdown = useCallback(() => {
-		void media.ensureActive();
+		void media.ensureActive(mediaRequirements);
 		setPhase("countdown");
-	}, [media]);
+	}, [media, mediaRequirements]);
 
 	// countdown → turn
 	useEffect(() => {
@@ -336,6 +337,7 @@ export function PracticeStage({ config, media, onExit, onRestart }: Props) {
 	const shownRemaining = remaining === null ? null : Math.min(remaining, phase === "turn" ? mod.turnDurationSec : 3);
 	const countdownNum = remaining === null ? null : Math.min(remaining, 3);
 	const localStream = media.stream.current;
+	const hasLocalVideo = localStream?.getVideoTracks().some((track) => track.readyState === "live") ?? false;
 
 	// =========================== RENDER ===========================
 
@@ -387,7 +389,7 @@ export function PracticeStage({ config, media, onExit, onRestart }: Props) {
 			className={`practice-stage${config.beat && phase === "turn" ? " grooving" : ""}`}
 			style={{ "--beat-period": `${(60 / (bpm ?? 90)).toFixed(3)}s` } as React.CSSProperties}
 		>
-			{localStream ? (
+			{localStream && hasLocalVideo ? (
 				<video
 					autoPlay
 					muted
@@ -399,7 +401,7 @@ export function PracticeStage({ config, media, onExit, onRestart }: Props) {
 				/>
 			) : (
 				<div className="practice-video practice-no-signal">
-					<div className="big">SIN SEÑAL</div>
+					<div className="big">{config.useCamera ? "SIN CÁMARA" : "SOLO MIC"}</div>
 				</div>
 			)}
 			<div className="arena-scanlines" />
