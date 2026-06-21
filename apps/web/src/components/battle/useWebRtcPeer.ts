@@ -27,6 +27,10 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 ];
 const VIDEO_MAX_BITRATE = 850_000;
 const VIDEO_MAX_FRAMERATE = 24;
+/** Cada cuánto el watchdog revisa que la conexión haya prendido. */
+const WATCHDOG_INTERVAL_MS = 1800;
+/** Ticks sin conectar (≈ WATCHDOG_INTERVAL_MS × N) antes de reiniciar ICE. */
+const WATCHDOG_RESTART_AFTER_TICKS = 3;
 
 function parseIceServers(raw: string | undefined): RTCIceServer[] {
 	if (!raw) return DEFAULT_ICE_SERVERS;
@@ -58,12 +62,12 @@ async function fetchIceServers(): Promise<RTCIceServer[]> {
 	}
 }
 
-function isReceivingTrack(track: MediaStreamTrack): boolean {
-	return track.readyState === "live" && !track.muted;
-}
-
 function senderKind(pc: RTCPeerConnection, sender: RTCRtpSender): MediaStreamTrack["kind"] | null {
 	return sender.track?.kind ?? pc.getTransceivers().find((transceiver) => transceiver.sender === sender)?.receiver.track.kind ?? null;
+}
+
+function isReceivingTrack(track: MediaStreamTrack): boolean {
+	return track.readyState === "live" && !track.muted;
 }
 
 async function tuneSender(sender: RTCRtpSender): Promise<void> {
@@ -78,18 +82,44 @@ async function tuneSender(sender: RTCRtpSender): Promise<void> {
 	await sender.setParameters(params);
 }
 
+/**
+ * Conexión de medios entre los dos MCs mediante "perfect negotiation".
+ *
+ * El rol p1 es el impaciente (impolite) y p2 el cortés (polite): ante una
+ * colisión de ofertas (glare), p1 ignora la oferta entrante y p2 hace rollback
+ * de la suya y acepta la del rival. Modern setRemoteDescription hace el rollback
+ * implícito, así que el caso de cruce de ofertas converge solo.
+ *
+ * Sobre eso, un watchdog reemite la última descripción local mientras la
+ * conexión no haya prendido. Esto es lo que garantiza que SIEMPRE se vean y
+ * escuchen: si una oferta/respuesta se pierde (red, reordenamiento, o el cambio
+ * de sala en una revancha donde la señal llega antes que el snapshot nuevo), el
+ * watchdog la reenvía hasta que ambos lados quedan conectados. Antes, una sola
+ * oferta perdida dejaba a p1 atascado en `have-local-offer` para siempre y el
+ * rival nunca recibía medios (aunque la transcripción, que va por el WebSocket,
+ * seguía llegando).
+ */
 export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomingSignal, onSignal }: Options) {
+	const polite = !initiator;
 	const pcRef = useRef<RTCPeerConnection | null>(null);
 	const remoteStreamRef = useRef<MediaStream | null>(null);
 	const handledSignalSeq = useRef(0);
 	const makingOffer = useRef(false);
+	const ignoreOffer = useRef(false);
+	const settingRemoteAnswer = useRef(false);
 	const peerKeyRef = useRef<string | null>(null);
 	const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+	const stuckTicksRef = useRef(0);
+	const onSignalRef = useRef(onSignal);
 	const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 	const [status, setStatus] = useState<PeerStatus>("idle");
 	const [iceServers, setIceServers] = useState<RTCIceServer[]>(ICE_SERVERS);
 	const [iceServersReady, setIceServersReady] = useState(Boolean(process.env.NEXT_PUBLIC_RTC_ICE_SERVERS));
+
+	useEffect(() => {
+		onSignalRef.current = onSignal;
+	}, [onSignal]);
 
 	const clearDisconnectTimer = useCallback(() => {
 		if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
@@ -110,7 +140,10 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 		setRemoteStream(null);
 		setStatus("idle");
 		makingOffer.current = false;
+		ignoreOffer.current = false;
+		settingRemoteAnswer.current = false;
 		handledSignalSeq.current = 0;
+		stuckTicksRef.current = 0;
 		pendingIceCandidatesRef.current = [];
 	}, [clearDisconnectTimer]);
 
@@ -130,21 +163,30 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 		await pc.addIceCandidate(candidate).catch(() => {});
 	}, []);
 
+	const emitLocalDescription = useCallback((pc: RTCPeerConnection) => {
+		const desc = pc.localDescription;
+		if (!desc) return;
+		if (desc.type === "offer") onSignalRef.current({ type: "offer", description: desc.toJSON() });
+		else if (desc.type === "answer") onSignalRef.current({ type: "answer", description: desc.toJSON() });
+	}, []);
+
 	const makeOffer = useCallback(
 		async (pc: RTCPeerConnection, options?: RTCOfferOptions) => {
-			if (makingOffer.current || pc.signalingState !== "stable") return;
+			if (makingOffer.current) return;
+			if (!options?.iceRestart && pc.signalingState !== "stable") return;
 			makingOffer.current = true;
 			try {
 				const offer = await pc.createOffer(options);
+				if (pcRef.current !== pc) return;
 				await pc.setLocalDescription(offer);
-				if (pc.localDescription) {
-					onSignal({ type: "offer", description: pc.localDescription.toJSON() });
-				}
+				emitLocalDescription(pc);
+			} catch {
+				/* el watchdog reintenta */
 			} finally {
 				makingOffer.current = false;
 			}
 		},
-		[onSignal],
+		[emitLocalDescription],
 	);
 
 	const createPeer = useCallback(() => {
@@ -154,6 +196,8 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 			bundlePolicy: "max-bundle",
 			iceCandidatePoolSize: 2,
 		});
+		// Transceivers fijos sendrecv: el layout de m-lines queda estable y simétrico,
+		// así adjuntar tracks luego es un replaceTrack sin renegociar.
 		pc.addTransceiver("audio", { direction: "sendrecv" });
 		pc.addTransceiver("video", { direction: "sendrecv" });
 		pcRef.current = pc;
@@ -162,16 +206,15 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 		pc.onicecandidate = (event) => {
 			const candidate = event.candidate?.toJSON();
 			if (candidate?.candidate) {
-				onSignal({ type: "ice", candidate: { ...candidate, candidate: candidate.candidate } });
+				onSignalRef.current({ type: "ice", candidate: { ...candidate, candidate: candidate.candidate } });
 			}
 		};
 		pc.ontrack = (event) => {
-			const next = remoteStreamRef.current ?? new MediaStream();
-			remoteStreamRef.current = next;
-			const tracks = event.streams[0]?.getTracks() ?? [event.track];
-			for (const track of tracks) {
-				if (next.getTracks().some((existing) => existing.id === track.id)) continue;
-				next.addTrack(track);
+			const stream = remoteStreamRef.current ?? new MediaStream();
+			remoteStreamRef.current = stream;
+			const track = event.track;
+			if (!stream.getTracks().some((existing) => existing.id === track.id)) {
+				stream.addTrack(track);
 				track.addEventListener("unmute", publishRemoteStream);
 				track.addEventListener("mute", publishRemoteStream);
 				track.addEventListener("ended", () => {
@@ -183,12 +226,16 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 			setStatus("connected");
 		};
 		pc.onnegotiationneeded = () => {
-			if (!initiator && !pc.remoteDescription) return;
-			void makeOffer(pc).catch(() => setStatus("failed"));
+			// Solo el impaciente (p1) inicia; el polite (p2) responde. Como los tracks
+			// se adjuntan sobre transceivers ya creados (replaceTrack, sin renegociar),
+			// p2 nunca necesita ofertar, y así evitamos el cruce de ofertas.
+			if (!initiator) return;
+			void makeOffer(pc);
 		};
 		pc.onconnectionstatechange = () => {
 			const state = pc.connectionState;
 			if (state === "connected") {
+				stuckTicksRef.current = 0;
 				clearDisconnectTimer();
 				setStatus("connected");
 				return;
@@ -202,19 +249,21 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 				setStatus("connecting");
 				clearDisconnectTimer();
 				disconnectTimerRef.current = setTimeout(() => {
-					if (pcRef.current === pc && pc.connectionState === "disconnected") setStatus("failed");
-				}, 5000);
+					if (pcRef.current === pc && pc.connectionState === "disconnected" && initiator) {
+						pc.restartIce();
+						void makeOffer(pc, { iceRestart: true });
+					}
+				}, 4000);
 				return;
 			}
 			if (state === "failed") {
 				clearDisconnectTimer();
-				if (initiator && pc.signalingState === "stable") {
-					setStatus("connecting");
+				setStatus("connecting");
+				if (initiator) {
 					pc.restartIce();
-					void makeOffer(pc, { iceRestart: true }).catch(() => setStatus("failed"));
-					return;
+					void makeOffer(pc, { iceRestart: true });
 				}
-				setStatus("failed");
+				return;
 			}
 			if (state === "closed") {
 				clearDisconnectTimer();
@@ -222,19 +271,13 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 			}
 		};
 		pc.oniceconnectionstatechange = () => {
-			if (pc.iceConnectionState === "failed" && initiator && pc.signalingState === "stable") {
-				setStatus("connecting");
+			if (pc.iceConnectionState === "failed" && initiator) {
 				pc.restartIce();
-				void makeOffer(pc, { iceRestart: true }).catch(() => setStatus("failed"));
-			}
-		};
-		pc.onicecandidateerror = () => {
-			if (remoteStreamRef.current) {
-				setStatus("connecting");
+				void makeOffer(pc, { iceRestart: true });
 			}
 		};
 		return pc;
-	}, [clearDisconnectTimer, iceServers, initiator, makeOffer, onSignal, publishRemoteStream]);
+	}, [clearDisconnectTimer, iceServers, initiator, makeOffer, publishRemoteStream]);
 
 	useEffect(() => {
 		if (!enabled || iceServersReady) return;
@@ -282,52 +325,101 @@ export function useWebRtcPeer({ enabled, peerKey, initiator, localStream, incomi
 			await Promise.all(replacements);
 			if (cancelled) return;
 			await Promise.all([...tunedSenders].map((sender) => tuneSender(sender).catch(() => {})));
-			if (!cancelled) {
-				onSignal({ type: "media-ready" });
-				if (initiator && pc.signalingState === "stable") await makeOffer(pc);
-			}
+			// La negociación la dispara onnegotiationneeded (transceivers añadidos al
+			// crear el peer); el watchdog cubre cualquier oferta/respuesta perdida.
 		};
-		void syncTracks().catch(() => setStatus("failed"));
+		void syncTracks().catch(() => {});
 		return () => {
 			cancelled = true;
 		};
-	}, [createPeer, enabled, iceServersReady, initiator, localStream, makeOffer, onSignal]);
+	}, [createPeer, enabled, iceServersReady, localStream]);
 
 	useEffect(() => {
 		if (!enabled || !iceServersReady || !incomingSignal || incomingSignal.seq <= handledSignalSeq.current) return;
 		if (incomingSignal.peerKey !== peerKey) return;
 		handledSignalSeq.current = incomingSignal.seq;
 		const pc = createPeer();
+		const signal = incomingSignal.signal;
 		const applySignal = async () => {
-			const signal = incomingSignal.signal;
-			if (signal.type === "media-ready") {
-				if (initiator && pc.signalingState === "stable") await makeOffer(pc);
-				return;
-			}
-			if (signal.type === "offer") {
-				const offerCollision = makingOffer.current || pc.signalingState !== "stable";
-				if (offerCollision && initiator) return;
-				await pc.setRemoteDescription(signal.description);
+			if (signal.type === "media-ready") return; // legacy: la negociación ya no depende de esto
+			if (signal.type === "offer" || signal.type === "answer") {
+				const description = signal.description;
+				const readyForOffer =
+					!makingOffer.current && (pc.signalingState === "stable" || settingRemoteAnswer.current);
+				const offerCollision = description.type === "offer" && !readyForOffer;
+				ignoreOffer.current = !polite && offerCollision;
+				if (ignoreOffer.current) return;
+				settingRemoteAnswer.current = description.type === "answer";
+				try {
+					// En colisión, el polite hace rollback implícito al setear la oferta remota.
+					await pc.setRemoteDescription(description);
+				} finally {
+					settingRemoteAnswer.current = false;
+				}
 				await flushPendingIceCandidates(pc);
-				const answer = await pc.createAnswer();
-				await pc.setLocalDescription(answer);
-				if (pc.localDescription) {
-					onSignal({ type: "answer", description: pc.localDescription.toJSON() });
+				if (description.type === "offer") {
+					const answer = await pc.createAnswer();
+					await pc.setLocalDescription(answer);
+					emitLocalDescription(pc);
 				}
 				return;
 			}
-			if (signal.type === "answer") {
-				if (pc.signalingState !== "have-local-offer") return;
-				await pc.setRemoteDescription(signal.description);
-				await flushPendingIceCandidates(pc);
-				return;
-			}
 			if (signal.type === "ice") {
-				await addIceCandidate(pc, signal.candidate);
+				try {
+					await addIceCandidate(pc, signal.candidate);
+				} catch {
+					if (!ignoreOffer.current) throw new Error("ice");
+				}
 			}
 		};
-		void applySignal().catch(() => setStatus("failed"));
-	}, [addIceCandidate, createPeer, enabled, flushPendingIceCandidates, iceServersReady, incomingSignal, initiator, makeOffer, onSignal, peerKey]);
+		void applySignal().catch(() => {
+			/* estado de señalización inesperado: el watchdog reconverge */
+		});
+	}, [
+		addIceCandidate,
+		createPeer,
+		emitLocalDescription,
+		enabled,
+		flushPendingIceCandidates,
+		iceServersReady,
+		incomingSignal,
+		polite,
+		peerKey,
+	]);
+
+	// Watchdog: mientras no esté conectado, reemitir la descripción local para
+	// recuperar señales perdidas y, tras varios intentos, reiniciar ICE.
+	useEffect(() => {
+		if (!enabled || !iceServersReady) return;
+		const id = setInterval(() => {
+			const pc = pcRef.current;
+			if (!pc) return;
+			const conn = pc.connectionState;
+			if (conn === "connected") {
+				stuckTicksRef.current = 0;
+				return;
+			}
+			stuckTicksRef.current += 1;
+			// Tenemos una oferta local sin respuesta (o la respuesta se perdió):
+			// reenviarla hace que el rival la procese / vuelva a responder.
+			if (pc.signalingState === "have-local-offer" && !makingOffer.current) {
+				emitLocalDescription(pc);
+				return;
+			}
+			// Estable pero sin conectar por varios ticks: problema de ICE.
+			if (pc.signalingState === "stable" && stuckTicksRef.current >= WATCHDOG_RESTART_AFTER_TICKS) {
+				stuckTicksRef.current = 0;
+				if (initiator) {
+					pc.restartIce();
+					void makeOffer(pc, { iceRestart: true });
+				} else {
+					// El polite reemite su última respuesta por si se perdió.
+					emitLocalDescription(pc);
+				}
+			}
+		}, WATCHDOG_INTERVAL_MS);
+		return () => clearInterval(id);
+	}, [emitLocalDescription, enabled, iceServersReady, initiator, makeOffer]);
 
 	useEffect(() => {
 		if (enabled) return;
